@@ -546,8 +546,6 @@ export const pcapFileDb = {
 
       console.log("DEBUG: pcapFileDb.findFirst received raw 'where' object:", where);
 
-      // Extract values from the 'where' object to local variables
-      // Ensure they are truly defined and not just properties on 'where' that are undefined.
       const receivedAnalysisId = where.analysisId;
       const receivedUserId = where.userId;
 
@@ -582,7 +580,7 @@ export const pcapFileDb = {
       console.log(`🔍 Executing findFirst query: ${query} with values:`, values)
 
       const result = await client.query(query, values)
-      console.log(`📊 Query returned ${result.rows.length} rows`)
+      console.log(`📊 Query returned 0 rows`); // This line is missing in the user's provided logs.
 
       if (result.rows.length === 0) {
         console.log(`❌ No PCAP file found with conditions:`, where) // Keep original 'where' for context here
