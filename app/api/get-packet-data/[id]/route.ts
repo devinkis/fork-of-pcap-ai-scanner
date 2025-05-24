@@ -137,13 +137,15 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
                   const ascii = slice.toString('ascii').replace(/[^\x20-\x7E]/g, '.');
                   hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`);
               }
-          // PERBAIKAN: Kurung kurawal penutup untuk blok 'try' parsing paket individual
-          } catch (e: any) { 
-              console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
-              info = `Error decoding: ${e.message}`;
-              isError = true;
-              errorType = "DecodingError";
-          } // Ini adalah penutup 'try' yang benar
+          // Kurung kurawal penutup untuk blok 'try' parsing paket individual
+          // Log Vercel menunjukkan error "Expected a semicolon" sebelum 'catch' di bawah ini.
+          // Ini berarti 'try' di atas tidak ditutup dengan benar.
+      } catch (e: any) { // Ini adalah catch untuk try parsing paket individual
+          console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
+          info = `Error decoding: ${e.message}`;
+          isError = true;
+          errorType = "DecodingError";
+      } // PERBAIKAN: Kurung kurawal '}' ini menutup 'try' di atas. Ini sudah benar.
 
       const finalPacketData = {
         id: packetCounter,
@@ -180,6 +182,8 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       if (packetCounter >= MAX_PACKETS_FOR_UI_DISPLAY) {
         console.warn(`[API_GET_PACKET_DATA] Reached packet display limit: ${MAX_PACKETS_FOR_UI_DISPLAY}`);
         generateAndResolveConnections(); 
+        // Tidak perlu return di sini karena resolveOnce/rejectOnce akan menangani promise
+        // dan event listener akan tetap terpanggil tapi tidak melakukan apa-apa jika promiseResolved = true
       }
     }); // Akhir parser.on('packet')
     
@@ -201,8 +205,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       rejectOnce(new Error(`Error parsing PCAP stream: ${err.message}`));
     });
   }); // Akhir new Promise
-}
-
+} // Akhir fungsi parsePcapForPacketDisplay
 
 export async function GET(request: NextRequest, { params }: { params: { analysisId: string } }) {
   try {
