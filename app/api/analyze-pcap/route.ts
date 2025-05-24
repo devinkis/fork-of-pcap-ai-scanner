@@ -1,58 +1,164 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAI } from "@ai-sdk/openai"; // Menggunakan factory dari @ai-sdk/openai
 import db from "@/lib/neon-db";
+import PcapParser from 'pcap-parser'; // Impor pcap-parser
+// import { Buffer } from 'buffer'; // Mungkin diperlukan jika Buffer tidak tersedia global di environment
 
-// --- Placeholder untuk fungsi parsing PCAP ---
+// --- Implementasi Awal parsePcapFile dengan pcap-parser ---
 async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
-  console.log(`[PARSE_PCAP_PLACEHOLDER] Attempting to "parse" PCAP file from URL: ${fileUrl} (File: ${fileName})`);
-  const randomFactor = Math.random();
-  const totalPackets = Math.floor(randomFactor * 15000) + 5000;
-  const tcpPackets = Math.floor(totalPackets * (0.4 + randomFactor * 0.3));
-  const udpPackets = Math.floor(totalPackets * (0.1 + randomFactor * 0.2));
-  const httpPackets = Math.floor(tcpPackets * (0.05 + randomFactor * 0.1));
-  const dnsPackets = Math.floor(udpPackets * (0.1 + randomFactor * 0.15));
+  console.log(`[PARSE_PCAP_ACTUAL] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
+  try {
+    const pcapResponse = await fetch(fileUrl);
+    if (!pcapResponse.ok || !pcapResponse.body) {
+      throw new Error(`Failed to download PCAP file: ${pcapResponse.statusText}`);
+    }
+    const arrayBuffer = await pcapResponse.arrayBuffer();
+    const pcapBuffer = Buffer.from(arrayBuffer); // Konversi ArrayBuffer ke Buffer Node.js
 
-  return {
-    statistics: {
-      totalPackets: totalPackets,
-      protocols: {
-        TCP: tcpPackets,
-        UDP: udpPackets,
-        HTTP: httpPackets,
-        DNS: dnsPackets,
-        ICMP: Math.floor(totalPackets * (0.01 + randomFactor * 0.04)),
-      },
-      topSources: [`192.168.1.${Math.floor(randomFactor * 100) + 10}`, `10.0.1.${Math.floor(randomFactor * 50) + 1}`],
-      topDestinations: [`${Math.floor(randomFactor * 200 + 1)}.${Math.floor(randomFactor * 255)}.${Math.floor(randomFactor * 255)}.100`, `8.8.4.4`],
-      anomalyScore: Math.floor(randomFactor * 70) + 10,
-    },
-    samplePackets: [
-      {
-        timestamp: new Date(Date.now() - Math.floor(randomFactor * 3600000)).toISOString(),
-        sourceIp: `192.168.1.${Math.floor(randomFactor * 100) + 10}`,
-        destIp: "8.8.8.8",
-        protocol: "DNS",
-        length: Math.floor(randomFactor * 30) + 50,
-        info: `Standard query 0x${Math.random().toString(16).substr(2, 4)} AAAA example-${Math.floor(randomFactor * 10)}.com`,
-      },
-      {
-        timestamp: new Date(Date.now() - Math.floor(randomFactor * 1800000)).toISOString(),
-        sourceIp: `10.0.1.${Math.floor(randomFactor * 50) + 1}`,
-        destIp: `${Math.floor(randomFactor * 200 + 1)}.${Math.floor(randomFactor * 255)}.${Math.floor(randomFactor * 255)}.100`,
-        protocol: "TCP",
-        length: Math.floor(randomFactor * 1000) + 400,
-        info: "[SYN, ACK] Seq=0 Ack=1 Win=65535 Len=0 MSS=1460 WS=256 SACK_PERM=1",
-      },
-    ],
-    potentialThreatsIdentified: randomFactor > 0.7 ? ["Unusual outbound connection to rare IP", "High number of DNS queries to new domains"] : ["No immediate high-priority threats detected"],
-    dataExfiltrationSigns: randomFactor > 0.85 ? "Possible data exfiltration pattern detected via DNS lookups to multiple subdomains." : "No clear signs of data exfiltration.",
-  };
+    const parser = PcapParser.parse(pcapBuffer);
+    
+    let packetCount = 0;
+    const protocolStats: { [key: string]: number } = {};
+    const samplePacketsForAI: Array<any> = [];
+    const MAX_SAMPLES_FOR_AI = 10; 
+    const MAX_PACKETS_TO_PROCESS_FOR_STATS = 10000; 
+
+    const ipCounts: { [ip: string]: { sent: number, received: number, sentBytes: number, receivedBytes: number } } = {};
+
+    return new Promise((resolve, reject) => {
+      parser.on('packet', (packet: any) => { 
+        packetCount++;
+        
+        let sourceIp = "N/A";
+        let destIp = "N/A";
+        let protocolName = "UNKNOWN";
+        let packetLength = packet.header.capturedLength;
+        let packetInfo = `Raw packet data, length ${packetLength}`; // Info default
+
+        // Contoh parsing dasar header Ethernet II -> IPv4 -> TCP/UDP/ICMP
+        // Ini adalah contoh yang disederhanakan dan mungkin perlu penyesuaian mendalam.
+        // Anda perlu mempelajari struktur output dari 'pcap-parser' dan byte offset yang benar.
+        if (packet.data && packet.data.length >= 34) { // Min length for Eth + IPv4 header
+            const ethType = packet.data.readUInt16BE(12); // EtherType field
+            if (ethType === 0x0800) { // IPv4
+                const ipHeaderStart = 14;
+                const ipHeader = packet.data.slice(ipHeaderStart);
+                
+                if (ipHeader.length >= 20) { // Min IPv4 header length
+                    const ipVersion = (ipHeader[0] >> 4) & 0x0F;
+                    if (ipVersion === 4) {
+                        const ipProtocolField = ipHeader[9];
+                        sourceIp = `${ipHeader[12]}.${ipHeader[13]}.${ipHeader[14]}.${ipHeader[15]}`;
+                        destIp = `${ipHeader[16]}.${ipHeader[17]}.${ipHeader[18]}.${ipHeader[19]}`;
+                        packetInfo = `IPv4 ${sourceIp} -> ${destIp}`;
+
+                        if (ipProtocolField === 1) {
+                            protocolName = 'ICMP';
+                            packetInfo += ` ICMP`;
+                        } else if (ipProtocolField === 6) {
+                            protocolName = 'TCP';
+                            packetInfo += ` TCP`;
+                            // Anda bisa menambahkan parsing port TCP di sini
+                        } else if (ipProtocolField === 17) {
+                            protocolName = 'UDP';
+                            packetInfo += ` UDP`;
+                            // Anda bisa menambahkan parsing port UDP di sini
+                        }
+                    }
+                }
+            } else if (ethType === 0x86DD) { // IPv6
+                protocolName = 'IPv6'; // Perlu parsing IPv6 lebih lanjut
+                packetInfo = `IPv6 packet`;
+            }
+        }
+        
+        protocolStats[protocolName] = (protocolStats[protocolName] || 0) + 1;
+
+        if (sourceIp !== "N/A") {
+            ipCounts[sourceIp] = ipCounts[sourceIp] || { sent: 0, received: 0, sentBytes: 0, receivedBytes: 0 };
+            ipCounts[sourceIp].sent++;
+            ipCounts[sourceIp].sentBytes += packetLength;
+        }
+        if (destIp !== "N/A") {
+            ipCounts[destIp] = ipCounts[destIp] || { sent: 0, received: 0, sentBytes: 0, receivedBytes: 0 };
+            ipCounts[destIp].received++;
+            ipCounts[destIp].receivedBytes += packetLength;
+        }
+
+        if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) {
+          samplePacketsForAI.push({
+            timestamp: new Date(packet.header.timestampSeconds * 1000 + packet.header.timestampMicroseconds / 1000).toISOString(),
+            sourceIp: sourceIp,
+            destIp: destIp,
+            protocol: protocolName,
+            length: packetLength,
+            info: packetInfo,
+          });
+        }
+
+        if (packetCount >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) {
+          console.warn(`[PARSE_PCAP_ACTUAL] Reached packet processing limit for stats: ${MAX_PACKETS_TO_PROCESS_FOR_STATS} for file ${fileName}`);
+          parser.eventNames().forEach(event => parser.removeAllListeners(event as any));
+          
+          const topTalkers = Object.entries(ipCounts)
+            .map(([ip, data]) => ({ ip, packets: data.sent + data.received, bytes: data.sentBytes + data.receivedBytes }))
+            .sort((a, b) => b.packets - a.packets)
+            .slice(0, 5);
+
+          resolve({
+            statistics: {
+              totalPackets: packetCount, // Ini adalah jumlah paket yang diproses sejauh ini
+              analyzedForStatsPackets: Math.min(packetCount, MAX_PACKETS_TO_PROCESS_FOR_STATS),
+              protocols: protocolStats,
+              topTalkers: topTalkers,
+              anomalyScore: Math.floor(Math.random() * 30) + 20, // Ganti dengan logika anomali nyata
+            },
+            samplePackets: samplePacketsForAI,
+            potentialThreatsIdentified: ["Based on preliminary scan..."],
+            dataExfiltrationSigns: "Checking for exfiltration patterns...",
+          });
+        }
+      });
+
+      parser.on('end', () => {
+        console.log(`[PARSE_PCAP_ACTUAL] Finished parsing. Total packets processed: ${packetCount} for file: ${fileName}`);
+        
+        const topTalkers = Object.entries(ipCounts)
+          .map(([ip, data]) => ({ ip, packets: data.sent + data.received, bytes: data.sentBytes + data.receivedBytes }))
+          .sort((a, b) => b.packets - a.packets)
+          .slice(0, 5);
+          
+        resolve({
+          statistics: {
+            totalPackets: packetCount,
+            analyzedForStatsPackets: packetCount,
+            protocols: protocolStats,
+            topTalkers: topTalkers,
+            anomalyScore: Math.floor(Math.random() * 30) + 20, 
+          },
+          samplePackets: samplePacketsForAI,
+          potentialThreatsIdentified: Object.keys(protocolStats).length > 1 ? ["Diverse protocol usage noted"] : ["Limited protocol diversity"],
+          dataExfiltrationSigns: packetCount > 500 ? "Moderate traffic volume observed" : "Low traffic volume",
+        });
+      });
+
+      parser.on('error', (err: Error) => {
+        console.error(`[PARSE_PCAP_ACTUAL] Error parsing PCAP file ${fileName}:`, err);
+        reject(new Error(`Error parsing PCAP file: ${err.message}`));
+      });
+
+    } catch (error) {
+      console.error(`[PARSE_PCAP_ACTUAL] Outer error in parsePcapFile for ${fileName}:`, error);
+      return Promise.reject(error instanceof Error ? error : new Error("Unknown error during PCAP processing"));
+    }
+  }
 }
-// --- Akhir dari placeholder ---
+// --- Akhir dari implementasi awal parsePcapFile ---
+
 
 const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "[https://openrouter.ai/api/v1](https://openrouter.ai/api/v1)";
+const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct";
 
 let openRouterProvider: ReturnType<typeof createOpenAI> | null = null;
@@ -69,42 +175,40 @@ if (openRouterApiKey && openRouterApiKey.trim() !== "") {
 
 // Fungsi untuk membersihkan string JSON dari markdown backticks
 function extractJsonFromString(text: string): string | null {
-  console.log("[EXTRACT_JSON] Original AI text:", text);
-  // Mencari ```json ... ``` atau ``` ... ```
-  const regex = /```(?:json)?\s*([\s\S]*?)\s*```/;
-  const match = text.match(regex);
-
-  if (match && match[1]) {
-    console.log("[EXTRACT_JSON] JSON found inside markdown backticks.");
-    return match[1].trim();
-  }
+    console.log("[EXTRACT_JSON] Original AI text length:", text.length);
+    // Mencari ```json ... ``` atau ``` ... ```
+    const regex = /```(?:json)?\s*([\s\S]*?)\s*```/;
+    const match = text.match(regex);
   
-  // Jika tidak ada backticks, coba cari '{' pertama dan '}' terakhir
-  // Ini kurang robust tapi bisa membantu untuk kasus JSON tanpa backticks tapi ada teks lain
-  const firstBrace = text.indexOf('{');
-  const lastBrace = text.lastIndexOf('}');
-  
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    const potentialJson = text.substring(firstBrace, lastBrace + 1);
-    try {
-        // Validasi sederhana apakah ini terlihat seperti JSON
-        JSON.parse(potentialJson);
-        console.log("[EXTRACT_JSON] JSON found by brace matching.");
-        return potentialJson;
-    } catch (e) {
-        // Bukan JSON yang valid dari brace matching, kembalikan teks asli untuk parsing berikutnya
-        console.warn("[EXTRACT_JSON] Brace matching did not yield valid JSON, returning original text for parsing attempt.");
+    if (match && match[1]) {
+      console.log("[EXTRACT_JSON] JSON found inside markdown backticks.");
+      return match[1].trim();
     }
-  }
-  
-  // Jika tidak ada format markdown, asumsikan seluruh teks adalah JSON (atau akan gagal parsing nanti)
-  console.log("[EXTRACT_JSON] No markdown backticks found, assuming raw JSON or will fail parsing.");
-  return text.trim(); 
+    
+    // Jika tidak ada backticks, coba cari '{' pertama dan '}' terakhir
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      const potentialJson = text.substring(firstBrace, lastBrace + 1);
+      try {
+          JSON.parse(potentialJson); // Validasi sederhana
+          console.log("[EXTRACT_JSON] JSON found by brace matching.");
+          return potentialJson;
+      } catch (e) {
+          console.warn("[EXTRACT_JSON] Brace matching did not yield valid JSON, returning original text for parsing attempt.");
+      }
+    }
+    
+    console.log("[EXTRACT_JSON] No markdown backticks or clear JSON object found, returning original trimmed text.");
+    return text.trim(); 
 }
-
 
 export async function POST(request: NextRequest) {
   let analysisIdFromBody: string | undefined;
+  let rawAnalysisTextForErrorLog: string | undefined; // Untuk logging jika JSON.parse gagal
+  let cleanedJsonTextForErrorLog: string | undefined; // Untuk logging jika JSON.parse gagal
+
   try {
     const body = await request.json();
     analysisIdFromBody = body.analysisId;
@@ -203,20 +307,23 @@ export async function POST(request: NextRequest) {
           "recommendations": [ { "title": "...", ... } ],
           "timeline": [ { "time": "...", "event": "...", "severity": "..." } ]
         }
-        Ensure all string values within the JSON are properly escaped. Your response MUST start with '{' and end with '}'. Do NOT include any text or markdown formatting (like \`\`\`json) before or after the JSON object itself.
+        Your response MUST start with '{' and end with '}'. Do NOT include any text or markdown formatting (like \`\`\`json) before or after the JSON object itself. The entire response must be ONLY the JSON object.
       `,
     });
 
-    console.log(`[API_ANALYZE_PCAP] AI analysis raw response received for analysisId: ${analysisIdFromBody}`);
+    rawAnalysisTextForErrorLog = rawAnalysisText; // Simpan untuk logging jika parse gagal
+    console.log(`[API_ANALYZE_PCAP] AI analysis raw response received (length: ${rawAnalysisText.length}) for analysisId: ${analysisIdFromBody}`);
     
     const cleanedJsonText = extractJsonFromString(rawAnalysisText);
+    cleanedJsonTextForErrorLog = cleanedJsonText; // Simpan untuk logging
+
     if (!cleanedJsonText) {
-        console.error(`[API_ANALYZE_PCAP] Failed to extract valid JSON from AI response for analysisId: ${analysisIdFromBody}. Raw text:`, rawAnalysisText);
-        throw new Error("AI returned data in an unrecoverable format.");
+        console.error(`[API_ANALYZE_PCAP] Failed to extract valid JSON from AI response for analysisId: ${analysisIdFromBody}. Raw text was:`, rawAnalysisText);
+        throw new Error("AI returned data in an unrecoverable format or empty after cleaning.");
     }
     
-    console.log(`[API_ANALYZE_PCAP] Cleaned JSON text for parsing:`, cleanedJsonText);
-    const aiAnalysis = JSON.parse(cleanedJsonText); // Parse JSON yang sudah dibersihkan
+    console.log(`[API_ANALYZE_PCAP] Cleaned JSON text for parsing (length: ${cleanedJsonText.length}):`, cleanedJsonText.substring(0, 200) + "..."); // Log sebagian kecil
+    const aiAnalysis = JSON.parse(cleanedJsonText); 
     console.log(`[API_ANALYZE_PCAP] AI analysis parsed successfully for analysisId: ${analysisIdFromBody}`);
 
     return NextResponse.json({
@@ -233,9 +340,9 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && (error.name === 'AI_LoadAPIKeyError' || error.message.includes("API key") || error.message.includes("authentication"))) {
         return NextResponse.json({ error: "AI Provider API key is missing, invalid, or not authorized. Please check server configuration and OpenRouter account status.", details: error.message }, { status: 500 });
     }
-    // Error parsing JSON sekarang seharusnya lebih jarang terjadi, tapi tetap ditangani
     if (error instanceof SyntaxError) { 
-        console.error(`[API_ANALYZE_PCAP] JSON Parsing Error after cleaning. Original text was:`, rawAnalysisText, `Cleaned text was:`, cleanedJsonText);
+        console.error(`[API_ANALYZE_PCAP] JSON Parsing Error. Original AI text was (first 500 chars):`, rawAnalysisTextForErrorLog?.substring(0, 500));
+        console.error(`[API_ANALYZE_PCAP] JSON Parsing Error. Cleaned text was (first 500 chars):`, cleanedJsonTextForErrorLog?.substring(0, 500));
         return NextResponse.json({ error: "Failed to parse AI response even after cleaning. The AI might have returned an invalid JSON structure.", details: errorMessage }, { status: 500 });
     }
 
