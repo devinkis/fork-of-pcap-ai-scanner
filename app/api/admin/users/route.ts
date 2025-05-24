@@ -1,4 +1,7 @@
-import db from "@/lib/db"
+// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-fb3444031e0b44895e9fddc8cf7c92cce4812117/app/api/admin/users/route.ts
+// --- PERBAIKAN MULAI ---
+import db from "@/lib/neon-db" // Mengimpor database Neon
+// --- PERBAIKAN SELESAI ---
 import { type NextRequest, NextResponse } from "next/server"
 import { requireAdmin, hashPassword } from "@/lib/auth"
 
