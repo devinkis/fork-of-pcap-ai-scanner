@@ -23,18 +23,16 @@ import {
 } from "@/components/ui/select";
 import { 
     Loader2, FileDown, AlertTriangle, X, RefreshCw, 
-    FileWarning, FileText, ListFilter, Info // Tambahkan Info
+    FileWarning, FileText, ListFilter, Info, Search // Pastikan Search diimpor
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton"; // <-- PASTIKAN IMPOR INI ADA
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // Pastikan Alert diimpor
 
 // Interface (Packet, Connection, BlobFile, PacketAnalysisProps) tetap sama
-// dari versi sebelumnya yang sudah Anda miliki dan saya berikan.
-// Untuk keringkasan, saya tidak menyertakannya lagi di sini,
-// tapi pastikan interface tersebut ada di atas kode komponen ini.
-
+// dari versi sebelumnya. Untuk keringkasan, saya tidak menyertakannya lagi di sini.
 interface Packet {
   id: number;
   timestamp: string;
@@ -81,7 +79,7 @@ interface BlobFile {
   metadata?: {
     analysisId?: string;
     originalName?: string;
-    size?: string; // Sebaiknya number, tapi string dari API Blob
+    size?: string; 
     uploadedAt?: string;
   };
 }
@@ -89,7 +87,6 @@ interface BlobFile {
 interface PacketAnalysisProps {
   analysisId: string;
 }
-
 
 export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
   const [packets, setPackets] = useState<Packet[]>([]);
@@ -106,12 +103,11 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
   const fetchPcapAndPacketData = async () => {
     setLoading(true);
     setError(null);
-    setPackets([]); // Kosongkan data lama
-    setConnections([]); // Kosongkan data lama
-    setSelectedPacket(null); // Reset selected packet
+    setPackets([]); 
+    setConnections([]); 
+    setSelectedPacket(null); 
 
     try {
-      // 1. Fetch PCAP file info (untuk tombol download)
       const pcapInfoResponse = await fetch(`/api/get-pcap/${analysisId}`);
       if (!pcapInfoResponse.ok) {
         const errorData = await pcapInfoResponse.json().catch(() => ({error: "Failed to fetch PCAP file information"}));
@@ -122,11 +118,8 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
         setPcapFile(pcapInfoData.files[0]);
       } else if (!pcapInfoData.success) {
         console.warn("API /api/get-pcap did not return success:", pcapInfoData.error);
-        // Tidak melempar error di sini agar pengambilan data paket tetap berjalan
       }
 
-
-      // 2. Fetch parsed packet data from new API endpoint
       console.log(`[PACKET_ANALYSIS_FE] Fetching parsed packet data for analysisId: ${analysisId}`);
       const packetDataResponse = await fetch(`/api/get-packet-data/${analysisId}`);
       if (!packetDataResponse.ok) {
@@ -178,7 +171,7 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
     if (filterType === "tcp-reset" && packet.protocol?.toUpperCase().includes("TCP")) {
       typeMatch = packet.flags?.includes("RST") || packet.errorType === "TCP Reset" || packet.errorType === "TCP Reset from Client";
     } else if (filterType === "failed-handshake" && packet.protocol?.toUpperCase().includes("TCP")) {
-      typeMatch = packet.errorType === "Failed Handshake"; // Ini perlu logika deteksi error yang lebih baik di backend
+      typeMatch = packet.errorType === "Failed Handshake"; 
     } else if (filterType === "connection-issues") {
       typeMatch = packet.isError === true && !!packet.errorType;
     } else if (filterType !== "all" && packet.protocol) { 
@@ -204,8 +197,8 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
 
   const getRowClassName = (packet: Packet) => {
     if (packet.isError) return "bg-red-50 dark:bg-red-900/30 hover:bg-red-100/70 dark:hover:bg-red-800/40";
-    if (selectedPacket?.id === packet.id) return "bg-primary/10 dark:bg-primary/20"; // Lebih soft untuk highlight
-    return "hover:bg-muted/50 dark:hover:bg-muted/30"; // Dark mode hover
+    if (selectedPacket?.id === packet.id) return "bg-primary/10 dark:bg-primary/20"; 
+    return "hover:bg-muted/50 dark:hover:bg-muted/30"; 
   };
 
   const downloadPcapFile = async () => {
@@ -237,26 +230,25 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
   
   const applyFilter = (type: string) => { setFilterType(type); };
 
-  // Tampilan loading utama saat data pertama kali diambil atau saat refresh
   if (loading && packets.length === 0) {
      return (
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4">
             <h2 className="text-2xl font-semibold tracking-tight">Packet Analysis</h2>
             <div className="flex gap-2 items-center">
-                <Skeleton className="h-9 w-36" /> {/* Skeleton untuk tombol download */}
-                <Skeleton className="h-9 w-24" /> {/* Skeleton untuk tombol refresh */}
+                <Skeleton className="h-9 w-36" /> 
+                <Skeleton className="h-9 w-24" /> 
             </div>
         </div>
-        <Skeleton className="h-5 w-3/4 mb-4" /> {/* Skeleton untuk info file */}
+        <Skeleton className="h-5 w-3/4 mb-4" /> 
         
         <Card className="shadow-md">
             <CardHeader className="border-b dark:border-gray-700">
-                <Skeleton className="h-9 w-full" /> {/* Skeleton untuk filter bar */}
+                <Skeleton className="h-9 w-full" /> 
             </CardHeader>
             <CardContent className="p-0">
                 <ScrollArea className="h-[calc(100vh-28rem)] md:h-[500px]">
-                     <div className="p-4 space-y-2"> {/* Wrapper untuk skeleton rows */}
+                     <div className="p-4 space-y-2"> 
                         {[...Array(10)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
                      </div>
                 </ScrollArea>
@@ -269,31 +261,27 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
      );
   }
 
-  // Tampilan error jika fetch gagal
   if (error && !loading) { 
     return (
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4">
             <h2 className="text-2xl font-semibold tracking-tight">Packet Analysis</h2>
         </div>
-        <Card>
-            <CardHeader>
-                <CardTitle className="text-red-500 flex items-center">
-                    <AlertTriangle className="h-5 w-5 mr-2"/>Error Loading Packet Data
-                </CardTitle>
-            </CardHeader>
-            <CardContent>
-            <p className="text-red-700 dark:text-red-400">{error}</p>
-            <Button onClick={fetchPcapAndPacketData} className="mt-6"> 
-                <RefreshCw className="mr-2 h-4 w-4"/>Try Again 
-            </Button>
-            </CardContent>
-        </Card>
+        {/* Penggunaan Alert untuk menampilkan error utama */}
+        <Alert variant="destructive">
+            <AlertTriangle className="h-5 w-5" />
+            <AlertTitle>Error Loading Packet Data</AlertTitle>
+            <AlertDescription>
+                <p>{error}</p>
+                <Button onClick={fetchPcapAndPacketData} className="mt-6"> 
+                    <RefreshCw className="mr-2 h-4 w-4"/>Try Again 
+                </Button>
+            </AlertDescription>
+        </Alert>
       </div>
     );
   }
 
-  // Tampilan Utama Setelah Data Ter-load
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
@@ -307,7 +295,7 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
             )}
         </div>
         <div className="flex gap-2 items-center flex-wrap sm:flex-nowrap">
-          {pcapFile && pcapFile.url && ( // Hanya tampilkan jika pcapFile dan URL ada
+          {pcapFile && pcapFile.url && ( 
             <Button variant="outline" size="sm" onClick={downloadPcapFile} className="w-full sm:w-auto">
               <FileDown className="h-4 w-4 mr-2" />
               Download PCAP
@@ -329,10 +317,10 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
                     placeholder="Filter packets (ID, IP, Port, Proto, Info...)"
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
-                    className="h-9 max-w-xs flex-grow md:max-w-sm lg:max-w-md" // Lebar dinamis
+                    className="h-9 max-w-xs flex-grow md:max-w-sm lg:max-w-md" 
                     />
                     {filter && (
-                        <Button variant="ghost" size="icon" onClick={() => setFilter("")} className="h-9 w-9 flex-shrink-0">
+                        <Button variant="ghost" size="icon" onClick={() => setFilter("")} disabled={!filter} className="h-9 w-9 flex-shrink-0">
                             <X className="h-4 w-4" />
                         </Button>
                     )}
@@ -341,16 +329,15 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
                     <Select value={filterType} onValueChange={applyFilter}>
                         <SelectTrigger className="h-9 w-full xs:w-auto sm:w-[160px] md:w-[180px]"> <SelectValue placeholder="Filter by type" /> </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Packets</SelectItem>
-                            <SelectItem value="TCP">TCP</SelectItem>
-                            <SelectItem value="UDP">UDP</SelectItem>
-                            <SelectItem value="ICMP">ICMP</SelectItem>
-                            <SelectItem value="ARP">ARP</SelectItem>
-                            <SelectItem value="IPv4">IPv4</SelectItem>
-                            <SelectItem value="IPv6">IPv6</SelectItem>
-                            <SelectItem value="tcp-reset">TCP Resets</SelectItem>
-                            {/* <SelectItem value="failed-handshake">Failed Handshakes</SelectItem> */}
-                            <SelectItem value="connection-issues">Packets with Errors</SelectItem>
+                        <SelectItem value="all">All Packets</SelectItem>
+                        <SelectItem value="TCP">TCP</SelectItem>
+                        <SelectItem value="UDP">UDP</SelectItem>
+                        <SelectItem value="ICMP">ICMP</SelectItem>
+                        <SelectItem value="ARP">ARP</SelectItem>
+                        <SelectItem value="IPv4">IPv4</SelectItem>
+                        <SelectItem value="IPv6">IPv6</SelectItem>
+                        <SelectItem value="tcp-reset">TCP Resets</SelectItem>
+                        <SelectItem value="connection-issues">Packets with Errors</SelectItem>
                         </SelectContent>
                     </Select>
                     <div className="flex items-center gap-2 pt-2 sm:pt-0 whitespace-nowrap">
@@ -361,7 +348,7 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
             </div>
         </CardHeader>
         <CardContent className="p-0">
-            <ScrollArea className="h-[calc(100vh-32rem)] md:h-[600px]" ref={tableContainerRef}> {/* Tingkatkan tinggi scroll area */}
+            <ScrollArea className="h-[calc(100vh-32rem)] md:h-[600px]" ref={tableContainerRef}> 
                 <Table className="min-w-full text-xs"> 
                     <TableHeader className="sticky top-0 z-10 bg-background shadow-sm dark:bg-slate-900">
                     <TableRow>
@@ -431,7 +418,8 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
                 </div>
                 <CardDescription className="text-xs">Timestamp: {new Date(selectedPacket.timestamp).toLocaleString()}</CardDescription>
                 </CardHeader>
-                <ScrollArea className="max-h-[calc(100vh-16rem)]"> {/* Disesuaikan tingginya */}
+                {/* PERBAIKAN UI: Bungkus Konten Tabs dengan ScrollArea */}
+                <ScrollArea className="max-h-[calc(100vh-17rem)]"> {/* Sesuaikan tinggi jika perlu */}
                     <CardContent className="p-0">
                         <Tabs defaultValue="details" className="w-full">
                             <TabsList className="grid w-full grid-cols-2 rounded-none border-b dark:border-gray-700">
@@ -447,7 +435,7 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
                                                 <AccordionTrigger className="text-sm font-medium hover:no-underline">{section}</AccordionTrigger>
                                                 <AccordionContent className="space-y-1.5 text-xs pl-4 pt-2">
                                                 {Object.entries(detailsObj).map(([key, value]) => (
-                                                    <div key={key} className="grid grid-cols-[140px_1fr] gap-x-2 items-baseline"> 
+                                                    <div key={key} className="grid grid-cols-[150px_1fr] gap-x-2 items-baseline"> 
                                                         <div className="font-semibold text-muted-foreground truncate" title={key}>{key}:</div>
                                                         <div className="font-mono break-all">{String(value)}</div>
                                                     </div>
@@ -457,11 +445,12 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
                                             )
                                         ))}
                                     </Accordion>
+                                    {/* Penggunaan Alert untuk error pada selectedPacket */}
                                     {selectedPacket.isError && selectedPacket.errorType && (
                                         <Alert variant="destructive" className="mt-4">
-                                        <AlertTriangle className="h-4 w-4" />
-                                        <AlertTitle>Error: {selectedPacket.errorType}</AlertTitle>
-                                        <AlertDescription>An error or anomaly was detected for this packet.</AlertDescription>
+                                            <AlertTriangle className="h-4 w-4" />
+                                            <AlertTitle>Error: {selectedPacket.errorType}</AlertTitle>
+                                            <AlertDescription>An error or anomaly was detected for this packet.</AlertDescription>
                                         </Alert>
                                     )}
                                 </TabsContent>
@@ -477,7 +466,7 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
                             </div>
                         </Tabs>
                     </CardContent>
-                </ScrollArea>
+                </ScrollArea> {/* Akhir ScrollArea untuk Konten Tabs */}
             </Card>
             ) : (
             <Card className="shadow-md sticky top-6">
