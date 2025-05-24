@@ -1,9 +1,10 @@
+// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-fb3444031e0b44895e9fddc8cf7c92cce4812117/lib/auth.ts
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import bcrypt from "bcryptjs"
 import jwt from "jsonwebtoken"
 
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key"
+const JWT_SECRET = process.env.JWT_SECRET || "Bayuajis112233@"
 
 export interface User {
   id: string
@@ -61,14 +62,28 @@ export function verifyToken(token: string): User | null {
       return null
     }
 
+    // --- FIX START ---
+    // Ensure that id, email, and role are valid non-empty strings
+    const userId = typeof decoded.id === 'string' && decoded.id.length > 0 ? decoded.id : null;
+    const userEmail = typeof decoded.email === 'string' && decoded.email.length > 0 ? decoded.email : null;
+    const userRole = typeof decoded.role === 'string' && decoded.role.length > 0 ? decoded.role : null;
+
+    if (!userId || !userEmail || !userRole) {
+      console.warn("Invalid or missing user data in token payload:", { userId, userEmail, userRole });
+      return null; // Invalid token payload
+    }
+    // --- FIX END ---
+
     return {
-      id: decoded.id,
-      email: decoded.email,
+      id: userId, // Use the validated userId
+      email: userEmail, // Use the validated userEmail
       name: decoded.name || null,
-      role: decoded.role,
+      role: userRole, // Use the validated userRole
     }
   } catch (error) {
-    return null
+    // Log the error for debugging, but return null for invalid token
+    console.error("Token verification failed:", error);
+    return null;
   }
 }
 
