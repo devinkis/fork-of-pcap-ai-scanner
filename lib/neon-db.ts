@@ -307,11 +307,11 @@ export const userDb = {
 
       console.log(`🔄 Creating PCAP file record with data:`, {
         id,
-        fileName: fileData.fileName,
-        originalName: fileData.originalName,
-        size: fileData.size,
-        analysisId: fileData.analysisId,
-        userId: fileData.userId,
+        fileName: data.fileName, // Corrected from fileData.fileName
+        originalName: data.originalName, // Corrected from fileData.originalName
+        size: data.size, // Corrected from fileData.size
+        analysisId: data.analysisId, // Corrected from fileData.analysisId
+        userId: data.userId, // Corrected from fileData.userId
       })
 
       const result = await client.query(
@@ -548,20 +548,24 @@ export const pcapFileDb = {
       console.log("DEBUG: pcapFileDb.findFirst received 'where' object:", where);
       // --- END ADDED DEBUG LOG ---
 
+      // Explicitly convert to string to ensure consistent type evaluation
+      const analysisIdStr = String(where.analysisId);
+      const userIdStr = String(where.userId);
+
       // Ensure analysisId is a non-empty string before adding to conditions
-      if (typeof where.analysisId === 'string' && where.analysisId.length > 0) {
+      if (analysisIdStr.length > 0) {
         conditions.push(`analysis_id = $${paramIndex++}`)
-        values.push(where.analysisId)
+        values.push(analysisIdStr)
       } else {
-        console.log("DEBUG: where.analysisId is not a valid non-empty string."); // Added debug log
+        console.log("DEBUG: analysisIdStr is not a valid non-empty string."); // Added debug log
       }
 
       // Ensure userId is a non-empty string before adding to conditions
-      if (typeof where.userId === 'string' && where.userId.length > 0) {
+      if (userIdStr.length > 0) {
         conditions.push(`user_id = $${paramIndex++}`)
-        values.push(where.userId)
+        values.push(userIdStr)
       } else {
-        console.log("DEBUG: where.userId is not a valid non-empty string."); // Added debug log
+        console.log("DEBUG: userIdStr is not a valid non-empty string."); // Added debug log
       }
 
       if (conditions.length === 0) {
@@ -579,11 +583,11 @@ export const pcapFileDb = {
         console.log(`❌ No PCAP file found with conditions:`, where)
 
         // Debug: Let's see what records exist for this user
-        if (typeof where.userId === 'string' && where.userId.length > 0) { // Ensure userId is valid for this debug query
+        if (userIdStr.length > 0) { // Ensure userId is valid for this debug query
           const debugResult = await client.query("SELECT analysis_id, user_id FROM pcap_files WHERE user_id = $1", [
-            where.userId,
+            userIdStr,
           ])
-          console.log(`🔍 Debug: All analysis IDs for user ${where.userId}:`, debugResult.rows)
+          console.log(`🔍 Debug: All analysis IDs for user ${userIdStr}:`, debugResult.rows)
         }
 
         return null
