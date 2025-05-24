@@ -3,6 +3,7 @@ import db from "@/lib/neon-db";
 import PcapParser from 'pcap-parser';
 import { Readable } from 'stream';
 
+// Fungsi parsePcapForPacketDisplay tetap sama seperti sebelumnya (tidak perlu diubah dari versi terakhir)
 async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Promise<{ packets: any[], connections: any[] }> {
   console.log(`[API_GET_PACKET_DATA] Parsing PCAP for Packet Display: ${fileName} from ${fileUrl}`);
   
@@ -63,11 +64,11 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       let detailedInfo: any = { "Frame Info": { Number: packetCounter, CapturedLength: packet.header.capturedLength, OriginalLength: packet.header.originalLength, Timestamp: new Date(packet.header.timestampSeconds * 1000 + packet.header.timestampMicroseconds / 1000).toISOString() }};
       let hexDump : string[] = [];
 
-      try { // Awal blok try untuk parsing paket individual
+      try { 
           if (packet.data && packet.data.length >= 14) { 
               detailedInfo["Ethernet II"] = { EtherType: `0x${packet.data.readUInt16BE(12).toString(16)}`}; 
               const etherType = packet.data.readUInt16BE(12);
-              if (etherType === 0x0800) { // IPv4
+              if (etherType === 0x0800) { 
                   protocol = "IPv4"; 
                   if (packet.data.length >= 14 + 20) { 
                       const ipHeaderStart = 14;
@@ -164,7 +165,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
                  protocol = `EtherType_0x${etherType.toString(16)}`;
                  info = `EtherType 0x${etherType.toString(16)}`;
               }
-          } // Akhir if (packet.data && packet.data.length >= 14)
+          } 
 
           const maxHexDumpBytes = 64;
           const dataBufferForDump = packet.data || Buffer.alloc(0);
@@ -174,13 +175,13 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
               const hex = slice.toString('hex').match(/.{1,2}/g)?.join(' ') || '';
               const ascii = slice.toString('ascii').replace(/[^\x20-\x7E]/g, '.');
               hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`);
-          } // Akhir for loop untuk hexDump
-      } catch (e: any) { // Ini adalah catch untuk try parsing paket individual
+          }
+      } catch (e: any) { 
           console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
           info = `Error decoding: ${e.message}`;
           isError = true;
           errorType = "DecodingError";
-      } // Ini adalah penutup 'try' yang benar
+      }
 
       const finalPacketData = {
         id: packetCounter,
@@ -225,7 +226,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
         console.warn(`[API_GET_PACKET_DATA] Reached packet display limit: ${MAX_PACKETS_FOR_UI_DISPLAY}`);
         generateAndResolveConnections(); 
       }
-    }); // Akhir parser.on('packet')
+    }); 
     
     const generateAndResolveConnections = () => {
         if (promiseResolved) return; 
@@ -245,18 +246,21 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       console.error(`[API_GET_PACKET_DATA] Error parsing PCAP stream:`, err);
       rejectOnce(new Error(`Error parsing PCAP stream: ${err.message}`));
     });
-  }); // Akhir new Promise
-} // Akhir fungsi parsePcapForPacketDisplay
+  }); 
+}
 
 
-export async function GET(request: NextRequest, { params }: { params: { analysisId: string } }) {
+// --- PERBAIKAN PADA FUNGSI GET ---
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) { // Menggunakan 'id' sesuai nama folder
   try {
-    const analysisIdFromParams = params.analysisId;
+    const analysisIdFromParams = params.id; // Menggunakan params.id
     if (!analysisIdFromParams) {
+      // Log ini seharusnya tidak tercapai jika nama folder [id] dan params.id digunakan
+      console.error("[API_GET_PACKET_DATA] Analysis ID missing from params.id"); 
       return NextResponse.json({ error: "Analysis ID is required in path" }, { status: 400 });
     }
 
-    console.log(`[API_GET_PACKET_DATA] Request received for analysisId: ${analysisIdFromParams}`);
+    console.log(`[API_GET_PACKET_DATA] Request received for analysisId (from params.id): ${analysisIdFromParams}`);
     const pcapRecord = await db.pcapFile.findUnique({ analysisId: analysisIdFromParams });
 
     if (!pcapRecord || !pcapRecord.blobUrl) {
