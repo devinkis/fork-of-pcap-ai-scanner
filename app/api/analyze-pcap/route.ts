@@ -1,15 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
-import { OpenAI } from "@ai-sdk/openai"; // Tetap gunakan OpenAI dari @ai-sdk/openai
-import db from "@/lib/neon-db"; //
+// Ubah cara import untuk OpenAI client
+import { createOpenAI } from "ai/openai"; // Menggunakan factory dari 'ai/openai'
+import db from "@/lib/neon-db";
 
 // --- Placeholder untuk fungsi parsing PCAP ---
 // Anda HARUS mengimplementasikan fungsi ini menggunakan library parsing PCAP pilihan Anda.
 // Contoh ini hanya mengembalikan data mock yang diacak.
 async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
   console.log(`[PARSE_PCAP_PLACEHOLDER] Attempting to "parse" PCAP file from URL: ${fileUrl} (File: ${fileName})`);
-  // Implementasi parsing PCAP Anda yang sebenarnya akan ada di sini.
-  // Untuk sekarang, kita kembalikan data mock yang sedikit berbeda tiap panggilan.
   const randomFactor = Math.random();
   const totalPackets = Math.floor(randomFactor * 15000) + 5000;
   const tcpPackets = Math.floor(totalPackets * (0.4 + randomFactor * 0.3));
@@ -60,15 +59,16 @@ const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct"; // Model default
 
-// Inisialisasi client OpenRouter. Client hanya akan dibuat jika API key ada.
-let openrouterClient: OpenAI | null = null;
+// Inisialisasi provider OpenRouter.
+// Provider hanya akan dibuat jika API key ada.
+let openRouterProvider: ReturnType<typeof createOpenAI> | null = null;
 
 if (openRouterApiKey && openRouterApiKey.trim() !== "") {
-  openrouterClient = new OpenAI({
+  openRouterProvider = createOpenAI({ // Menggunakan factory createOpenAI
     apiKey: openRouterApiKey,
     baseURL: openRouterBaseURL,
   });
-  console.log("[API_ANALYZE_PCAP_CONFIG] OpenRouter client initialized.");
+  console.log("[API_ANALYZE_PCAP_CONFIG] OpenRouter provider configured using createOpenAI.");
 } else {
   console.error("[CRITICAL_CONFIG_ERROR] OPENROUTER_API_KEY environment variable is missing or empty. AI features will be disabled.");
 }
@@ -80,8 +80,8 @@ export async function POST(request: NextRequest) {
     analysisIdFromBody = body.analysisId;
     console.log(`[API_ANALYZE_PCAP] Received request for analysisId: ${analysisIdFromBody}`);
 
-    if (!openrouterClient) {
-      console.error("[API_ANALYZE_PCAP] OpenRouter client is not initialized. OPENROUTER_API_KEY is likely missing or empty in environment variables.");
+    if (!openRouterProvider) {
+      console.error("[API_ANALYZE_PCAP] OpenRouter provider is not configured. OPENROUTER_API_KEY is likely missing or empty in environment variables.");
       return NextResponse.json({ error: "AI Provider (OpenRouter) is not configured. API key might be missing." }, { status: 500 });
     }
 
@@ -124,7 +124,10 @@ export async function POST(request: NextRequest) {
     console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisIdFromBody}`);
 
     const { text: analysis } = await generateText({
-      model: openrouterClient.chat(modelNameFromEnv as any),
+      // Gunakan provider dan nama model yang sudah dikonfigurasi
+      model: openRouterProvider.chat(modelNameFromEnv as any), 
+      // Alternatif jika .chat() tidak sesuai: openRouterProvider(modelNameFromEnv as any)
+      // Sesuaikan berdasarkan apa yang dikembalikan oleh createOpenAI dan bagaimana Vercel AI SDK mengharapkannya
       prompt: `
         You are a network security expert analyzing PCAP data.
         The data is from file: "${dataForAI.fileName}" (size: ${dataForAI.fileSize} bytes, analysis ID: ${dataForAI.analysisId}).
@@ -192,10 +195,12 @@ export async function POST(request: NextRequest) {
     
     const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred during AI analysis.";
     
-    if (error instanceof Error && error.name === 'AI_LoadAPIKeyError') { // Ini adalah nama error generik dari Vercel AI SDK
-        return NextResponse.json({ error: "AI Provider API key is missing or invalid. Please check server configuration. Ensure OPENROUTER_API_KEY is set correctly in your Vercel environment variables and the project is redeployed.", details: error.message }, { status: 500 });
+    // Tangani error spesifik jika diperlukan, misal AI_APITimeoutError, AI_InvalidAPIKeyError, dll.
+    // Error 'AI_LoadAPIKeyError' mungkin tidak akan muncul lagi jika createOpenAI menangani ini secara internal.
+    if (error instanceof Error && (error.name === 'AI_LoadAPIKeyError' || error.message.includes("API key") || error.message.includes("authentication"))) {
+        return NextResponse.json({ error: "AI Provider API key is missing, invalid, or not authorized. Please check server configuration and OpenRouter account status.", details: error.message }, { status: 500 });
     }
-    if (error instanceof SyntaxError && errorMessage.includes("JSON.parse")) { // Error parsing respons AI
+    if (error instanceof SyntaxError && errorMessage.includes("JSON.parse")) {
         return NextResponse.json({ error: "Failed to parse AI response. The AI might have returned an invalid JSON.", details: errorMessage }, { status: 500 });
     }
 
