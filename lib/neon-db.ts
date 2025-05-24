@@ -1,4 +1,3 @@
-// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-fb3444031e0b44895e9fddc8cf7c92cce4812117/lib/neon-db.ts
 import { createClient } from "@vercel/postgres";
 import { v4 as uuidv4 } from "uuid";
 
@@ -28,7 +27,7 @@ const checkDatabaseConnection = () => {
 checkDatabaseConnection();
 
 // Function to create a client with proper connection string
-export const createDbClient = () => { // Exported for use in debug/health checks directly
+const createDbClient = () => {
   // First check for non-pooling connection string
   if (process.env.POSTGRES_URL_NON_POOLING) {
     return createClient({
@@ -49,6 +48,9 @@ export const createDbClient = () => { // Exported for use in debug/health checks
     ssl: { rejectUnauthorized: false },
   });
 };
+
+// Export the createDbClient function for use in debug endpoint
+export { createDbClient };
 
 // Function to initialize the database schema
 export async function initializeDatabase() {
@@ -302,13 +304,6 @@ export const userDb = {
       const id = data.id || uuidv4();
       const now = new Date();
 
-      console.log(`🔄 Creating user record with data:`, { // Corrected log message
-        id,
-        email: data.email, // Use specific user data fields
-        name: data.name,
-        role: data.role,
-      });
-
       const result = await client.query(
         `INSERT INTO users (id, email, password, name, role, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -343,12 +338,12 @@ export const userDb = {
     }
   },
 
-  update: async (options: { where: { id: string }; data: any }) => {
+  update: async (options: { where: { id: string }; data: any; select?: any }) => {
     const client = createDbClient();
     await client.connect();
 
     try {
-      const { where, data } = options;
+      const { where, data, select } = options;
       const now = new Date();
 
       const updates = [];
@@ -378,9 +373,33 @@ export const userDb = {
       updates.push(`updated_at = $${paramIndex++}`);
       values.push(now);
 
-      if (updates.length === 1) { // Only updated_at, meaning no other data was provided for update
-        return null;
+      if (updates.length === 1) { // Only updated_at was added
+        // If only `updated_at` is in `updates`, it means no other fields were provided to update.
+        // We might still want to update the `updated_at` timestamp, or return the existing user.
+        // For now, let's proceed with the update if other fields are present, or fetch current if not.
+        // This condition check was problematic, let's refine or remove if only timestamp update is fine.
+        // If the intent is to *require* other fields for an update, this logic needs more thought.
+        // Assuming an update always implies at least one actual data field change besides timestamp,
+        // then `updates.length > 1` would be the check.
+        // If only timestamp update is desired when no data fields change, this part needs adjustment.
+        // For safety, if only `updated_at` is pushed, it means no actual data to update.
+        // Let's assume `updates.length === 1` (only updated_at) means no effective data change.
+        // A better approach might be to check if `Object.keys(data).length > 0` before constructing updates.
+        // However, sticking to the current structure, if `updates` only contains `updated_at`,
+        // perhaps we should fetch the current user data and return it, or proceed if timestamp update is desired.
+        // The original code had `if (updates.length === 1) { return null }`. This implies if only `updated_at` is to be changed, it's not a valid update.
+        // This part `if (updates.length === 1) { return null; }` was problematic if an update only involved one field other than `updated_at`.
+        // Let's remove the `if (updates.length === 1) { return null; }` check for now, as an update might legitimately only change one field.
+        // The critical part is that `updates` should not be empty if we are to run an UPDATE query.
+        if (paramIndex === 2 && updates.length === 1 && updates[0].startsWith('updated_at')) { // only updated_at
+             // If only updated_at is being "updated", just fetch and return the user
+            const currentUserResult = await client.query("SELECT * FROM users WHERE id = $1", [where.id]);
+            if (currentUserResult.rows.length === 0) return null;
+            const currentUser = currentUserResult.rows[0];
+            return { ...currentUser, createdAt: currentUser.created_at, updatedAt: currentUser.updated_at };
+        }
       }
+
 
       values.push(where.id);
       const updateQuery = `UPDATE users SET ${updates.join(", ")} WHERE id = $${paramIndex} RETURNING *`;
@@ -393,18 +412,17 @@ export const userDb = {
 
       const user = result.rows[0];
 
-      // 'select' was not in the function signature for update, remove it or add to signature if needed
-      // if (select) {
-      //   const selectedUser: any = {};
-      //   Object.keys(select).forEach((key) => {
-      //     if (select[key]) {
-      //       if (key === "createdAt") selectedUser[key] = user.created_at;
-      //       else if (key === "updatedAt") selectedUser[key] = user.updated_at;
-      //       else selectedUser[key] = user[key];
-      //     }
-      //   });
-      //   return selectedUser;
-      // }
+      if (select) {
+        const selectedUser: any = {};
+        Object.keys(select).forEach((key) => {
+          if (select[key]) {
+            if (key === "createdAt") selectedUser[key] = user.created_at;
+            else if (key === "updatedAt") selectedUser[key] = user.updated_at;
+            else selectedUser[key] = user[key];
+          }
+        });
+        return selectedUser;
+      }
 
       return {
         ...user,
@@ -413,7 +431,7 @@ export const userDb = {
       };
     } catch (error) {
       console.error("❌ Error updating user:", error);
-      return null;
+      return null; // Or throw error based on desired behavior
     } finally {
       await client.end();
     }
@@ -485,6 +503,7 @@ export const pcapFileDb = {
         console.log(`🔍 Finding PCAP file by ID: ${where.id}`);
         const result = await client.query("SELECT * FROM pcap_files WHERE id = $1", [where.id]);
         if (result.rows.length === 0) {
+          console.log(`❌ No PCAP file found with ID: ${where.id}`);
           return null;
         }
         const file = result.rows[0];
@@ -504,6 +523,7 @@ export const pcapFileDb = {
         console.log(`🔍 Finding PCAP file by analysis ID: ${where.analysisId}`);
         const result = await client.query("SELECT * FROM pcap_files WHERE analysis_id = $1", [where.analysisId]);
         if (result.rows.length === 0) {
+          console.log(`❌ No PCAP file found with analysis ID: ${where.analysisId}`);
           return null;
         }
         const file = result.rows[0];
@@ -529,7 +549,7 @@ export const pcapFileDb = {
     }
   },
 
-  findFirst: async (where: { analysisId?: string; userId?: string }) => {
+  findFirst: async (options: { where: { analysisId?: string; userId?: string } }) => {
     const client = createDbClient();
     await client.connect();
 
@@ -538,38 +558,30 @@ export const pcapFileDb = {
       const values = [];
       let paramIndex = 1;
 
-      console.log("DEBUG: pcapFileDb.findFirst received raw 'where' object:", where);
+      const { where: conditionsToCheck } = options; // Correctly access the nested 'where' object
 
-      const receivedAnalysisId = where.analysisId;
-      const receivedUserId = where.userId;
+      console.log(`🔍 pcapFileDb.findFirst - Effective 'where' clause:`, conditionsToCheck);
 
-      // --- IMAGINATIVE WORKAROUND (REFINED) START ---
-      // Attempt to ensure values are treated as primitive strings reliably
-      // This is a direct attempt to combat the unexplained falsy evaluation.
-      const analysisIdToUse = (typeof receivedAnalysisId === 'string' && receivedAnalysisId.length > 0) ? String(receivedAnalysisId) : null;
-      const userIdToUse = (typeof receivedUserId === 'string' && receivedUserId.length > 0) ? String(receivedUserId) : null;
-      // --- IMAGINATIVE WORKAROUND (REFINED) END ---
 
-      // Ensure analysisId is a non-empty string before adding to conditions
-      if (analysisIdToUse) {
+      if (conditionsToCheck.analysisId) {
         conditions.push(`analysis_id = $${paramIndex++}`);
-        values.push(analysisIdToUse);
-        console.log(`DEBUG: Adding analysisId to query: '${analysisIdToUse}'`);
+        values.push(conditionsToCheck.analysisId);
+        console.log(`🔍 Added condition for analysisId: ${conditionsToCheck.analysisId}`);
       } else {
-        console.log("DEBUG: analysisIdToUse is null or empty, not adding to conditions.");
+        console.log(`ℹ️ No analysisId provided in where clause or it's falsy.`);
       }
 
-      // Ensure userId is a non-empty string before adding to conditions
-      if (userIdToUse) {
+      if (conditionsToCheck.userId) {
         conditions.push(`user_id = $${paramIndex++}`);
-        values.push(userIdToUse);
-        console.log(`DEBUG: Adding userId to query: '${userIdToUse}'`);
+        values.push(conditionsToCheck.userId);
+        console.log(`🔍 Added condition for userId: ${conditionsToCheck.userId}`);
       } else {
-        console.log("DEBUG: userIdToUse is null or empty, not adding to conditions.");
+        console.log(`ℹ️ No userId provided in where clause or it's falsy.`);
       }
+
 
       if (conditions.length === 0) {
-        console.log("❌ No search conditions provided for findFirst (after final checks).");
+        console.log("❌ No search conditions provided for findFirst (after processing options.where).");
         return null;
       }
 
@@ -580,16 +592,20 @@ export const pcapFileDb = {
       console.log(`📊 Query returned ${result.rows.length} rows`);
 
       if (result.rows.length === 0) {
-        console.log(`❌ No PCAP file found with conditions:`, where);
+        console.log(`❌ No PCAP file found with conditions:`, conditionsToCheck);
 
-        // Debug: Let's see what records exist for this user
-        if (userIdToUse) {
-          const debugResult = await client.query("SELECT analysis_id, user_id FROM pcap_files WHERE user_id = $1", [
-            userIdToUse,
+        if (conditionsToCheck.userId) {
+          const debugResult = await client.query("SELECT analysis_id, user_id, original_name FROM pcap_files WHERE user_id = $1", [
+            conditionsToCheck.userId,
           ]);
-          console.log(`🔍 Debug: All analysis IDs for user ${userIdToUse}:`, debugResult.rows);
+          console.log(`🔍 Debug: All files for user ${conditionsToCheck.userId}:`, debugResult.rows);
         }
-
+        if (conditionsToCheck.analysisId) {
+            const debugResultAnalysis = await client.query("SELECT analysis_id, user_id, original_name FROM pcap_files WHERE analysis_id = $1", [
+              conditionsToCheck.analysisId,
+            ]);
+            console.log(`🔍 Debug: Record matching analysisId ${conditionsToCheck.analysisId}:`, debugResultAnalysis.rows);
+        }
         return null;
       }
 
@@ -745,9 +761,24 @@ export const pcapFileDb = {
       updates.push(`updated_at = $${paramIndex++}`);
       values.push(now);
 
-      if (updates.length === 1) {
-        return null;
+      if (updates.length === 1 && updates[0].startsWith('updated_at')) { // Only updated_at is being "updated"
+        // If only updated_at is being "updated", just fetch and return the file
+        const currentFileResult = await client.query("SELECT * FROM pcap_files WHERE id = $1", [where.id]);
+        if (currentFileResult.rows.length === 0) return null;
+        const currentFile = currentFileResult.rows[0];
+        return {
+            id: currentFile.id,
+            fileName: currentFile.file_name,
+            originalName: currentFile.original_name,
+            size: currentFile.size,
+            blobUrl: currentFile.blob_url,
+            analysisId: currentFile.analysis_id,
+            userId: currentFile.user_id,
+            createdAt: currentFile.created_at,
+            updatedAt: currentFile.updated_at,
+         };
       }
+
 
       values.push(where.id);
       const updateQuery = `UPDATE pcap_files SET ${updates.join(", ")} WHERE id = $${paramIndex} RETURNING *`;
@@ -781,7 +812,7 @@ export const pcapFileDb = {
 };
 
 // Health check query with better error handling
-const queryRaw = async (query: string) => {
+export const queryRaw = async (query: string) => {
   if (query !== "SELECT 1") {
     throw new Error("Unsupported query");
   }
@@ -801,7 +832,7 @@ const queryRaw = async (query: string) => {
 };
 
 // Test database connection
-const testConnection = async () => {
+export const testConnection = async () => {
   const client = createDbClient();
   await client.connect();
 
