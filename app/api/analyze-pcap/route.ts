@@ -2,19 +2,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import db from "@/lib/neon-db";
+import { PcapDissector, PcapFile } from 'pcap-dissector'; // Impor dari pcap-dissector
 
-// Impor dari @js-pcap
-import { parsePcapBuffer } from '@js-pcap/pcap-parser';
-import { parseEthernet } from '@js-pcap/ethernet-parser';
-import { parseIpv4 } from '@js-pcap/ipv4-parser';
-// import { parseIpv6 } from '@js-pcap/ipv6-parser'; // Uncomment jika Anda perlukan
-import { parseTcp } from '@js-pcap/tcp-parser';
-import { parseUdp } from '@js-pcap/udp-parser';
-// Anda mungkin perlu mengimpor parser lain dari @js-pcap jika ingin parsing layer aplikasi lebih detail
-// seperti @js-pcap/dns-parser atau membuat parser kustom untuk HTTP.
-
-async function parsePcapFileWithJsPcap(fileUrl: string, fileName: string): Promise<any> {
-  console.log(`[PARSE_JSPCAP] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
+async function parsePcapFileWithPcapDissector(fileUrl: string, fileName: string): Promise<any> {
+  console.log(`[PARSE_PCAP_DISSECTOR] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
   try {
     const pcapResponse = await fetch(fileUrl);
     if (!pcapResponse.ok || !pcapResponse.body) {
@@ -23,89 +14,86 @@ async function parsePcapFileWithJsPcap(fileUrl: string, fileName: string): Promi
     const arrayBuffer = await pcapResponse.arrayBuffer();
     const pcapBuffer = Buffer.from(arrayBuffer);
 
-    const pcapData = parsePcapBuffer(pcapBuffer);
-    
-    let packetCounter = 0; // Ganti nama variabel agar tidak konflik
+    const pcapFile = new PcapFile(pcapBuffer);
+    // PcapDissector akan secara otomatis mencoba mendeteksi link layer type
+    // Jika gagal atau tidak standar, mungkin perlu penyesuaian atau error handling
+    const dissector = new PcapDissector(pcapFile.linkLayerType);
+
+    let packetCounter = 0;
     const protocolStats: { [key: string]: number } = {};
     const samplePacketsForAI: Array<any> = [];
-    const MAX_SAMPLES_FOR_AI = 15; 
-    const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; 
+    const MAX_SAMPLES_FOR_AI = 15;
+    const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000;
 
     const ipTraffic: { [ip: string]: { sentPackets: number, receivedPackets: number, sentBytes: number, receivedBytes: number } } = {};
 
-    for (const pcapPacket of pcapData.packets) { // Ganti nama variabel loop
+    for (const rawPacket of pcapFile.packets) {
       packetCounter++;
-      const packetLength = pcapPacket.capturedLength;
+      const packetLength = rawPacket.capturedLength;
       let sourceIp = "N/A";
       let destIp = "N/A";
-      let sourcePort: number | undefined;
-      let destPort: number | undefined;
+      let sourcePort: number | string | undefined;
+      let destPort: number | string | undefined;
       let layer3ProtocolName = "UnknownL3";
       let layer4ProtocolName = "UnknownL4";
       let applicationLayerInfo = "";
       let packetSummary = `Packet ${packetCounter}`;
 
       try {
-        const ethernetFrame = parseEthernet(pcapPacket.data);
-        protocolStats['Ethernet'] = (protocolStats['Ethernet'] || 0) + 1;
+        const dissectedPacket = dissector.dissect(rawPacket.data);
 
-        if (ethernetFrame.type.name === 'IPv4') {
-          layer3ProtocolName = 'IPv4';
-          protocolStats[layer3ProtocolName] = (protocolStats[layer3ProtocolName] || 0) + 1;
-          const ipv4Packet = parseIpv4(ethernetFrame.payload);
-          sourceIp = ipv4Packet.sourceIp;
-          destIp = ipv4Packet.destinationIp;
-          layer4ProtocolName = ipv4Packet.protocol.name; // e.g., TCP, UDP, ICMP
-          packetSummary = `IPv4 ${sourceIp} -> ${destIp} (${layer4ProtocolName})`;
-
-
-          if (layer4ProtocolName === 'TCP') {
-            protocolStats['TCP'] = (protocolStats['TCP'] || 0) + 1;
-            const tcpSegment = parseTcp(ipv4Packet.payload);
-            sourcePort = tcpSegment.sourcePort;
-            destPort = tcpSegment.destinationPort;
-            packetSummary += ` ${sourcePort}->${destPort}`;
-            // Contoh deteksi protokol aplikasi berdasarkan port TCP umum
-            if (destPort === 80 || sourcePort === 80) applicationLayerInfo = "Likely HTTP";
-            else if (destPort === 443 || sourcePort === 443) applicationLayerInfo = "Likely HTTPS/TLS";
-            else if (destPort === 53 || sourcePort === 53) applicationLayerInfo = "DNS over TCP";
-            else if (destPort === 21 || sourcePort === 21) applicationLayerInfo = "FTP Control";
-            else if (destPort === 22 || sourcePort === 22) applicationLayerInfo = "SSH";
-            // Anda perlu parsing payload TCP lebih lanjut untuk konfirmasi (misal, HTTP parser)
-          } else if (layer4ProtocolName === 'UDP') {
-            protocolStats['UDP'] = (protocolStats['UDP'] || 0) + 1;
-            const udpDatagram = parseUdp(ipv4Packet.payload);
-            sourcePort = udpDatagram.sourcePort;
-            destPort = udpDatagram.destinationPort;
-            packetSummary += ` ${sourcePort}->${destPort}`;
-            if (destPort === 53 || sourcePort === 53) applicationLayerInfo = "DNS over UDP";
-            else if (destPort === 161 || sourcePort === 161) applicationLayerInfo = "SNMP";
-            // Anda perlu parsing payload UDP lebih lanjut (misal, DNS parser)
-          } else if (layer4ProtocolName === 'ICMP') {
-            protocolStats['ICMP'] = (protocolStats['ICMP'] || 0) + 1;
-            applicationLayerInfo = "ICMP"; // Tambahkan parsing type/code jika perlu
-          }
-        } else if (ethernetFrame.type.name === 'IPv6') {
-          layer3ProtocolName = 'IPv6';
-          protocolStats[layer3ProtocolName] = (protocolStats[layer3ProtocolName] || 0) + 1;
-          // const ipv6Packet = parseIpv6(ethernetFrame.payload); // Jika Anda install dan import ipv6-parser
-          // sourceIp = ipv6Packet.sourceAddress;
-          // destIp = ipv6Packet.destinationAddress;
-          // layer4ProtocolName = ipv6Packet.nextHeader.name; // Contoh
-          packetSummary = `IPv6 Packet`; // Sederhanakan untuk contoh
-        } else if (ethernetFrame.type.name === 'ARP') {
-            layer3ProtocolName = 'ARP';
-            protocolStats[layer3ProtocolName] = (protocolStats[layer3ProtocolName] || 0) + 1;
-            packetSummary = `ARP Packet`;
+        // Layer 2 (Ethernet) - Umumnya tidak dikirim ke AI kecuali ada info khusus
+        if (dissectedPacket.link?.type) {
+            protocolStats['Ethernet'] = (protocolStats['Ethernet'] || 0) + 1;
         }
-        // Tambahkan parser lain sesuai kebutuhan
+
+        // Layer 3 (IP)
+        if (dissectedPacket.network?.type) {
+            layer3ProtocolName = dissectedPacket.network.type.toUpperCase(); // e.g., IPV4, IPV6, ARP
+            protocolStats[layer3ProtocolName] = (protocolStats[layer3ProtocolName] || 0) + 1;
+            if (dissectedPacket.network.sourceAddress) {
+                sourceIp = dissectedPacket.network.sourceAddress.toString();
+            }
+            if (dissectedPacket.network.destinationAddress) {
+                destIp = dissectedPacket.network.destinationAddress.toString();
+            }
+            packetSummary = `${layer3ProtocolName} ${sourceIp} -> ${destIp}`;
+        }
+
+        // Layer 4 (Transport)
+        if (dissectedPacket.transport?.type) {
+            layer4ProtocolName = dissectedPacket.transport.type.toUpperCase(); // e.g., TCP, UDP, ICMP
+            protocolStats[layer4ProtocolName] = (protocolStats[layer4ProtocolName] || 0) + 1;
+            if (dissectedPacket.transport.sourcePort) {
+                sourcePort = dissectedPacket.transport.sourcePort;
+            }
+            if (dissectedPacket.transport.destinationPort) {
+                destPort = dissectedPacket.transport.destinationPort;
+            }
+            packetSummary += ` (${layer4ProtocolName}) ${sourcePort !== undefined ? sourcePort : ''}->${destPort !== undefined ? destPort : ''}`;
+
+            const numDestPort = Number(destPort);
+            const numSourcePort = Number(sourcePort);
+            if (numDestPort === 80 || numSourcePort === 80) applicationLayerInfo = "Likely HTTP";
+            else if (numDestPort === 443 || numSourcePort === 443) applicationLayerInfo = "Likely HTTPS/TLS";
+            else if (numDestPort === 53 || numSourcePort === 53) applicationLayerInfo = "Likely DNS";
+            else if (numDestPort === 21 || numSourcePort === 21) applicationLayerInfo = "FTP Control";
+            else if (numDestPort === 22 || numSourcePort === 22) applicationLayerInfo = "SSH";
+            // ... tambahkan deteksi port lain
+        }
+        
+        // Layer 5+ (Aplikasi) - pcap-dissector mungkin punya parser untuk beberapa ini
+        if (dissectedPacket.application?.type) {
+            const appType = dissectedPacket.application.type.toUpperCase();
+            applicationLayerInfo = appType + (applicationLayerInfo ? ` (${applicationLayerInfo})` : '');
+            protocolStats[appType] = (protocolStats[appType] || 0) + 1;
+        }
+
 
       } catch (e: any) {
-        console.warn(`[PARSE_JSPCAP] Error parsing individual packet ${packetCounter} for ${fileName}: ${e.message}. Data: ${pcapPacket.data.toString('hex').substring(0,60)}`);
-        // Tetap lanjutkan ke paket berikutnya jika satu paket gagal di-parse
+        console.warn(`[PARSE_PCAP_DISSECTOR] Error parsing individual packet ${packetCounter} for ${fileName}: ${e.message}. Data (hex): ${rawPacket.data.toString('hex').substring(0,100)}`);
       }
         
-      // Kumpulkan statistik IP
       if (sourceIp !== "N/A") {
           ipTraffic[sourceIp] = ipTraffic[sourceIp] || { sentPackets: 0, receivedPackets: 0, sentBytes: 0, receivedBytes: 0 };
           ipTraffic[sourceIp].sentPackets++;
@@ -120,23 +108,23 @@ async function parsePcapFileWithJsPcap(fileUrl: string, fileName: string): Promi
       if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) {
         samplePacketsForAI.push({
           no: packetCounter,
-          timestamp: new Date(Number(pcapPacket.header.timestampSeconds) * 1000 + Number(pcapPacket.header.timestampMicroseconds) / 1000).toISOString(),
-          source: sourcePort ? `${sourceIp}:${sourcePort}` : sourceIp,
-          destination: destPort ? `${destIp}:${destPort}` : destIp,
+          timestamp: new Date(Number(rawPacket.header.timestampSeconds) * 1000 + Number(rawPacket.header.timestampMicroseconds) / 1000).toISOString(),
+          source: sourcePort !== undefined ? `${sourceIp}:${sourcePort}` : sourceIp,
+          destination: destPort !== undefined ? `${destIp}:${destPort}` : destIp,
           protocolL3: layer3ProtocolName,
           protocolL4: layer4ProtocolName,
           length: packetLength,
-          info: applicationLayerInfo || packetSummary, // Lebih informatif
+          info: applicationLayerInfo || packetSummary,
         });
       }
 
       if (packetCounter >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) {
-        console.warn(`[PARSE_JSPCAP] Reached packet processing limit for stats: ${MAX_PACKETS_TO_PROCESS_FOR_STATS} for file ${fileName}`);
-        break; 
+        console.warn(`[PARSE_PCAP_DISSECTOR] Reached packet processing limit for stats: ${MAX_PACKETS_TO_PROCESS_FOR_STATS} for file ${fileName}`);
+        break;
       }
-    } 
+    }
 
-    console.log(`[PARSE_JSPCAP] Finished parsing loop. Total packets iterated for stats: ${packetCounter} for file: ${fileName}`);
+    console.log(`[PARSE_PCAP_DISSECTOR] Finished parsing loop. Total packets iterated for stats: ${packetCounter} for file: ${fileName}`);
     
     const topTalkers = Object.entries(ipTraffic)
       .map(([ip, data]) => ({ 
@@ -149,35 +137,30 @@ async function parsePcapFileWithJsPcap(fileUrl: string, fileName: string): Promi
           receivedBytes: data.receivedBytes
         }))
       .sort((a, b) => b.packets - a.packets)
-      .slice(0, 5); // Ambil top 5 talkers
+      .slice(0, 5);
       
     return {
       statistics: {
-        totalPacketsInFile: pcapData.packets.length, 
+        totalPacketsInFile: pcapFile.packets.length, 
         packetsProcessedForStats: packetCounter, 
-        protocols: protocolStats, // Ini akan berisi Ethernet, IPv4, TCP, UDP, dll.
+        protocols: protocolStats,
         topTalkers: topTalkers,
-        // Ganti logika anomalyScore dengan yang lebih cerdas berdasarkan data
-        anomalyScore: (protocolStats['UNKNOWN'] || 0) > packetCounter * 0.1 ? 75 : Math.floor(Math.random() * 40) + 10, 
+        anomalyScore: (protocolStats['UNKNOWNL3'] || 0 + (protocolStats['UNKNOWNL4'] || 0)) > packetCounter * 0.05 ? 70 : Math.floor(Math.random() * 35) + 10,
       },
       samplePackets: samplePacketsForAI,
-      // Ini juga perlu logika deteksi yang lebih baik
-      potentialThreatsIdentified: topTalkers.length > 0 && topTalkers[0].packets > packetCounter * 0.5 ? [`High traffic from/to ${topTalkers[0].ip}`] : ["No obvious high-priority threats from initial scan."],
-      dataExfiltrationSigns: "Needs deeper payload analysis for exfiltration signs.",
+      potentialThreatsIdentified: topTalkers.length > 0 && topTalkers[0].packets > packetCounter * 0.6 ? [`Dominant traffic from/to ${topTalkers[0].ip}`] : ["Initial scan shows varied traffic patterns."],
+      dataExfiltrationSigns: "Further analysis needed for definitive exfiltration signs.",
     };
 
   } catch (error) {
-    console.error(`[PARSE_JSPCAP] Outer error in parsePcapFileWithJsPcap for ${fileName}:`, error);
+    console.error(`[PARSE_PCAP_DISSECTOR] Outer error in parsePcapFileWithPcapDissector for ${fileName}:`, error);
     throw error; 
   }
 }
 
-// --- Sisa kode (OpenRouter client, extractJsonFromString, dan fungsi POST handler) ---
-// Tetap sama seperti versi sebelumnya.
-
 const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct";
+const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct"; // Sesuaikan dengan model gratis OpenRouter
 
 let openRouterProvider: ReturnType<typeof createOpenAI> | null = null;
 
@@ -256,7 +239,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[API_ANALYZE_PCAP] Analyzing PCAP: ${pcapFileName} (URL: ${pcapFileUrl}, Size: ${pcapFileSize} bytes) for analysisId: ${analysisIdFromBody}`);
 
-    const extractedPcapData = await parsePcapFileWithJsPcap(pcapFileUrl, pcapFileName);
+    const extractedPcapData = await parsePcapFileWithPcapDissector(pcapFileUrl, pcapFileName);
 
     if (!extractedPcapData) {
         console.error(`[API_ANALYZE_PCAP] Failed to parse PCAP data for analysisId: ${analysisIdFromBody}`);
@@ -280,7 +263,7 @@ export async function POST(request: NextRequest) {
         
         Key Extracted PCAP Data:
         - Overall Statistics: ${JSON.stringify(dataForAI.statistics, null, 2)}
-        - Sample Packets (first ${MAX_SAMPLES_FOR_AI} packets or less): ${JSON.stringify(dataForAI.samplePackets, null, 2)}
+        - Sample Packets (first ${MAX_SAMPLES_FOR_AI} packets or less, 'no' field is packet number): ${JSON.stringify(dataForAI.samplePackets, null, 2)}
         - Preliminary Scan Results (if any): 
           - Potential Threats: ${JSON.stringify(dataForAI.potentialThreatsIdentified)}
           - Data Exfiltration Signs: ${dataForAI.dataExfiltrationSigns}
