@@ -1,23 +1,21 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
-import { openai } from "@ai-sdk/openai";
-// import { list, head } from "@vercel/blob"; // head tidak digunakan di revisi ini, list bisa jika path tidak pasti
+import { OpenAI } from "@ai-sdk/openai"; // Tetap gunakan OpenAI dari @ai-sdk/openai
 import db from "@/lib/neon-db"; //
 
 // --- Placeholder untuk fungsi parsing PCAP ---
-// Anda HARUS mengimplementasikan fungsi ini menggunakan library parsing PCAP.
-// Contoh ini hanya mengembalikan data mock yang diacak agar berbeda tiap file.
+// Anda HARUS mengimplementasikan fungsi ini menggunakan library parsing PCAP pilihan Anda.
+// Contoh ini hanya mengembalikan data mock yang diacak.
 async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
   console.log(`[PARSE_PCAP_PLACEHOLDER] Attempting to "parse" PCAP file from URL: ${fileUrl} (File: ${fileName})`);
-
-  // Simulasi ekstraksi data yang berbeda untuk setiap file
-  // Ini BUKAN parsing PCAP yang sebenarnya.
+  // Implementasi parsing PCAP Anda yang sebenarnya akan ada di sini.
+  // Untuk sekarang, kita kembalikan data mock yang sedikit berbeda tiap panggilan.
   const randomFactor = Math.random();
-  const totalPackets = Math.floor(randomFactor * 15000) + 5000; // antara 5000 dan 20000
-  const tcpPackets = Math.floor(totalPackets * (0.4 + randomFactor * 0.3)); // 40-70% TCP
-  const udpPackets = Math.floor(totalPackets * (0.1 + randomFactor * 0.2)); // 10-30% UDP
-  const httpPackets = Math.floor(tcpPackets * (0.05 + randomFactor * 0.1)); // 5-15% dari TCP adalah HTTP
-  const dnsPackets = Math.floor(udpPackets * (0.1 + randomFactor * 0.15)); // 10-25% dari UDP adalah DNS
+  const totalPackets = Math.floor(randomFactor * 15000) + 5000;
+  const tcpPackets = Math.floor(totalPackets * (0.4 + randomFactor * 0.3));
+  const udpPackets = Math.floor(totalPackets * (0.1 + randomFactor * 0.2));
+  const httpPackets = Math.floor(tcpPackets * (0.05 + randomFactor * 0.1));
+  const dnsPackets = Math.floor(udpPackets * (0.1 + randomFactor * 0.15));
 
   return {
     statistics: {
@@ -27,11 +25,11 @@ async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
         UDP: udpPackets,
         HTTP: httpPackets,
         DNS: dnsPackets,
-        ICMP: Math.floor(totalPackets * (0.01 + randomFactor * 0.04)), // 1-5% ICMP
+        ICMP: Math.floor(totalPackets * (0.01 + randomFactor * 0.04)),
       },
       topSources: [`192.168.1.${Math.floor(randomFactor * 100) + 10}`, `10.0.1.${Math.floor(randomFactor * 50) + 1}`],
       topDestinations: [`${Math.floor(randomFactor * 200 + 1)}.${Math.floor(randomFactor * 255)}.${Math.floor(randomFactor * 255)}.100`, `8.8.4.4`],
-      anomalyScore: Math.floor(randomFactor * 70) + 10, // Skor anomali antara 10 dan 80
+      anomalyScore: Math.floor(randomFactor * 70) + 10,
     },
     samplePackets: [
       {
@@ -51,32 +49,55 @@ async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
         info: "[SYN, ACK] Seq=0 Ack=1 Win=65535 Len=0 MSS=1460 WS=256 SACK_PERM=1",
       },
     ],
-    // Informasi lain yang relevan untuk AI
     potentialThreatsIdentified: randomFactor > 0.7 ? ["Unusual outbound connection to rare IP", "High number of DNS queries to new domains"] : ["No immediate high-priority threats detected"],
     dataExfiltrationSigns: randomFactor > 0.85 ? "Possible data exfiltration pattern detected via DNS lookups to multiple subdomains." : "No clear signs of data exfiltration.",
   };
 }
 // --- Akhir dari placeholder ---
 
-export async function POST(request: NextRequest) {
-  try {
-    const { analysisId } = await request.json();
-    console.log(`[API_ANALYZE_PCAP] Received request for analysisId: ${analysisId}`);
+// Ambil konfigurasi dari environment variables
+const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct"; // Model default
 
-    if (!analysisId) {
-      console.error("[API_ANALYZE_PCAP] No analysis ID provided");
+// Inisialisasi client OpenRouter. Client hanya akan dibuat jika API key ada.
+let openrouterClient: OpenAI | null = null;
+
+if (openRouterApiKey && openRouterApiKey.trim() !== "") {
+  openrouterClient = new OpenAI({
+    apiKey: openRouterApiKey,
+    baseURL: openRouterBaseURL,
+  });
+  console.log("[API_ANALYZE_PCAP_CONFIG] OpenRouter client initialized.");
+} else {
+  console.error("[CRITICAL_CONFIG_ERROR] OPENROUTER_API_KEY environment variable is missing or empty. AI features will be disabled.");
+}
+
+export async function POST(request: NextRequest) {
+  let analysisIdFromBody: string | undefined;
+  try {
+    const body = await request.json();
+    analysisIdFromBody = body.analysisId;
+    console.log(`[API_ANALYZE_PCAP] Received request for analysisId: ${analysisIdFromBody}`);
+
+    if (!openrouterClient) {
+      console.error("[API_ANALYZE_PCAP] OpenRouter client is not initialized. OPENROUTER_API_KEY is likely missing or empty in environment variables.");
+      return NextResponse.json({ error: "AI Provider (OpenRouter) is not configured. API key might be missing." }, { status: 500 });
+    }
+
+    if (!analysisIdFromBody) {
+      console.error("[API_ANALYZE_PCAP] No analysis ID provided in the request body.");
       return NextResponse.json({ error: "No analysis ID provided" }, { status: 400 });
     }
 
-    // 1. Dapatkan informasi file PCAP dari database
-    const pcapRecord = await db.pcapFile.findUnique({ analysisId }); //
+    const pcapRecord = await db.pcapFile.findUnique({ analysisId: analysisIdFromBody });
 
     if (!pcapRecord) {
-      console.error(`[API_ANALYZE_PCAP] PCAP record not found in DB for analysisId: ${analysisId}`);
+      console.error(`[API_ANALYZE_PCAP] PCAP record not found in DB for analysisId: ${analysisIdFromBody}`);
       return NextResponse.json({ error: "PCAP file metadata not found for this analysis" }, { status: 404 });
     }
     if (!pcapRecord.blobUrl) {
-      console.error(`[API_ANALYZE_PCAP] PCAP record found, but blobUrl is missing for analysisId: ${analysisId}`);
+      console.error(`[API_ANALYZE_PCAP] PCAP record found, but blobUrl is missing for analysisId: ${analysisIdFromBody}`);
       return NextResponse.json({ error: "PCAP file URL not found for this analysis" }, { status: 404 });
     }
     
@@ -84,30 +105,26 @@ export async function POST(request: NextRequest) {
     const pcapFileName = pcapRecord.originalName;
     const pcapFileSize = pcapRecord.size;
 
-    console.log(`[API_ANALYZE_PCAP] Analyzing PCAP: ${pcapFileName} (URL: ${pcapFileUrl}, Size: ${pcapFileSize} bytes) for analysisId: ${analysisId}`);
+    console.log(`[API_ANALYZE_PCAP] Analyzing PCAP: ${pcapFileName} (URL: ${pcapFileUrl}, Size: ${pcapFileSize} bytes) for analysisId: ${analysisIdFromBody}`);
 
-    // 2. Parse file PCAP (GANTI DENGAN IMPLEMENTASI NYATA)
-    // parsePcapFile akan mengunduh file dari pcapFileUrl dan memprosesnya.
-    const extractedPcapData = await parsePcapFile(pcapFileUrl, pcapFileName); //
+    const extractedPcapData = await parsePcapFile(pcapFileUrl, pcapFileName);
 
     if (!extractedPcapData) {
-        console.error(`[API_ANALYZE_PCAP] Failed to parse PCAP data for analysisId: ${analysisId}`);
+        console.error(`[API_ANALYZE_PCAP] Failed to parse PCAP data for analysisId: ${analysisIdFromBody}`);
         return NextResponse.json({ error: "Failed to parse PCAP file data." }, { status: 500 });
     }
 
     const dataForAI = {
-      analysisId,
+      analysisId: analysisIdFromBody,
       fileName: pcapFileName,
       fileSize: pcapFileSize,
       ...extractedPcapData,
     };
 
-    console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisId}`, dataForAI.statistics);
+    console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisIdFromBody}`);
 
-
-    // 3. Gunakan AI untuk menganalisis data yang diekstrak
     const { text: analysis } = await generateText({
-      model: openai("gpt-4o"),
+      model: openrouterClient.chat(modelNameFromEnv as any),
       prompt: `
         You are a network security expert analyzing PCAP data.
         The data is from file: "${dataForAI.fileName}" (size: ${dataForAI.fileSize} bytes, analysis ID: ${dataForAI.analysisId}).
@@ -123,7 +140,7 @@ export async function POST(request: NextRequest) {
         1. Provide a concise summary of your findings. What is the overall security posture observed from this data?
         2. Determine a threat level (low, medium, high, critical).
         3. List up to 5 specific, actionable findings. For each finding:
-            - id: a unique string for this finding
+            - id: a unique string for this finding (e.g., "finding-dns-tunnel-01")
             - title: a short, descriptive title
             - description: a detailed explanation of what was observed
             - severity: (low, medium, high, critical)
@@ -156,13 +173,13 @@ export async function POST(request: NextRequest) {
           "recommendations": [ { "title": "...", ... } ],
           "timeline": [ { "time": "...", "event": "...", "severity": "..." } ]
         }
-        Ensure all string values within the JSON are properly escaped.
+        Ensure all string values within the JSON are properly escaped. If you cannot provide certain fields because the data is insufficient, omit them or provide an empty array/object as appropriate for the JSON structure. If the input data is minimal or contains no clear security events, state that in the summary and provide minimal or empty arrays for findings/iocs.
       `,
     });
 
-    console.log(`[API_ANALYZE_PCAP] AI analysis raw response received for analysisId: ${analysisId}`);
+    console.log(`[API_ANALYZE_PCAP] AI analysis raw response received for analysisId: ${analysisIdFromBody}`);
     const aiAnalysis = JSON.parse(analysis);
-    console.log(`[API_ANALYZE_PCAP] AI analysis parsed successfully for analysisId: ${analysisId}`);
+    console.log(`[API_ANALYZE_PCAP] AI analysis parsed successfully for analysisId: ${analysisIdFromBody}`);
 
     return NextResponse.json({
       success: true,
@@ -170,8 +187,18 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error(`[API_ANALYZE_PCAP] Error analyzing packet data for analysisId: ${request.url.split('=').pop()}:`, error);
-    const errorMessage = error instanceof Error ? error.message : "Failed to analyze packet data";
-    return NextResponse.json({ error: errorMessage, details: error instanceof Error ? error.stack : undefined }, { status: 500 });
+    const analysisIdForLogError = analysisIdFromBody || request.nextUrl.searchParams.get('analysisId') || 'unknown';
+    console.error(`[API_ANALYZE_PCAP] Error analyzing packet data for analysisId: ${analysisIdForLogError}:`, error);
+    
+    const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred during AI analysis.";
+    
+    if (error instanceof Error && error.name === 'AI_LoadAPIKeyError') { // Ini adalah nama error generik dari Vercel AI SDK
+        return NextResponse.json({ error: "AI Provider API key is missing or invalid. Please check server configuration. Ensure OPENROUTER_API_KEY is set correctly in your Vercel environment variables and the project is redeployed.", details: error.message }, { status: 500 });
+    }
+    if (error instanceof SyntaxError && errorMessage.includes("JSON.parse")) { // Error parsing respons AI
+        return NextResponse.json({ error: "Failed to parse AI response. The AI might have returned an invalid JSON.", details: errorMessage }, { status: 500 });
+    }
+
+    return NextResponse.json({ error: errorMessage, details: error instanceof Error ? error.stack : "No stack available" }, { status: 500 });
   }
 }
