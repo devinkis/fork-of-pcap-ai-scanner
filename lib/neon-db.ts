@@ -393,17 +393,18 @@ export const userDb = {
 
       const user = result.rows[0];
 
-      if (select) { // 'select' was not in the function signature for update
-        const selectedUser: any = {};
-        Object.keys(select).forEach((key) => {
-          if (select[key]) {
-            if (key === "createdAt") selectedUser[key] = user.created_at;
-            else if (key === "updatedAt") selectedUser[key] = user.updated_at;
-            else selectedUser[key] = user[key];
-          }
-        });
-        return selectedUser;
-      }
+      // 'select' was not in the function signature for update, remove it or add to signature if needed
+      // if (select) {
+      //   const selectedUser: any = {};
+      //   Object.keys(select).forEach((key) => {
+      //     if (select[key]) {
+      //       if (key === "createdAt") selectedUser[key] = user.created_at;
+      //       else if (key === "updatedAt") selectedUser[key] = user.updated_at;
+      //       else selectedUser[key] = user[key];
+      //     }
+      //   });
+      //   return selectedUser;
+      // }
 
       return {
         ...user,
@@ -544,6 +545,7 @@ export const pcapFileDb = {
 
       // --- IMAGINATIVE WORKAROUND (REFINED) START ---
       // Attempt to ensure values are treated as primitive strings reliably
+      // This is a direct attempt to combat the unexplained falsy evaluation.
       const analysisIdToUse = (typeof receivedAnalysisId === 'string' && receivedAnalysisId.length > 0) ? String(receivedAnalysisId) : null;
       const userIdToUse = (typeof receivedUserId === 'string' && receivedUserId.length > 0) ? String(receivedUserId) : null;
       // --- IMAGINATIVE WORKAROUND (REFINED) END ---
@@ -583,7 +585,7 @@ export const pcapFileDb = {
         // Debug: Let's see what records exist for this user
         if (userIdToUse) {
           const debugResult = await client.query("SELECT analysis_id, user_id FROM pcap_files WHERE user_id = $1", [
-            userIdTo,
+            userIdToUse,
           ]);
           console.log(`🔍 Debug: All analysis IDs for user ${userIdToUse}:`, debugResult.rows);
         }
