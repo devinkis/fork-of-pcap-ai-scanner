@@ -19,7 +19,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
   const parsedPackets: any[] = [];
   let packetCounter = 0;
   const MAX_PACKETS_FOR_UI_DISPLAY = 500;
-  let promiseResolved = false; // Flag untuk memastikan resolve/reject hanya sekali
+  let promiseResolved = false;
 
   const connectionMap = new Map<string, any>();
 
@@ -27,7 +27,6 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
     const resolveOnce = (data: { packets: any[], connections: any[] }) => {
         if (!promiseResolved) {
           promiseResolved = true;
-          // Pastikan parser berhenti memproses jika sudah resolve/reject
           if (parser && typeof parser.removeAllListeners === 'function') {
             parser.removeAllListeners();
           }
@@ -45,7 +44,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
     };
 
     parser.on('packet', (packet: any) => {
-      if (promiseResolved) return; // Jika sudah selesai, jangan proses lagi
+      if (promiseResolved) return;
       packetCounter++;
 
       let sourceIp = "N/A";
@@ -138,13 +137,13 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
                   const ascii = slice.toString('ascii').replace(/[^\x20-\x7E]/g, '.');
                   hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`);
               }
-        // Kurung kurawal penutup untuk blok 'try' parsing paket individual
-        } catch (e: any) { 
-          console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
-          info = `Error decoding: ${e.message}`;
-          isError = true;
-          errorType = "DecodingError";
-        } // Ini adalah penutup 'try' yang benar
+          // PERBAIKAN: Kurung kurawal penutup untuk blok 'try' parsing paket individual
+          } catch (e: any) { 
+              console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
+              info = `Error decoding: ${e.message}`;
+              isError = true;
+              errorType = "DecodingError";
+          } // Ini adalah penutup 'try' yang benar
 
       const finalPacketData = {
         id: packetCounter,
@@ -180,11 +179,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
 
       if (packetCounter >= MAX_PACKETS_FOR_UI_DISPLAY) {
         console.warn(`[API_GET_PACKET_DATA] Reached packet display limit: ${MAX_PACKETS_FOR_UI_DISPLAY}`);
-        if (parser && typeof parser.removeAllListeners === 'function') {
-            parser.removeAllListeners();
-        }
-        generateAndResolveConnections(); // Memanggil fungsi di dalam event handler
-        // Tidak perlu 'return;' di sini karena resolveOnce/rejectOnce akan menghentikan promise
+        generateAndResolveConnections(); 
       }
     }); // Akhir parser.on('packet')
     
@@ -206,7 +201,8 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       rejectOnce(new Error(`Error parsing PCAP stream: ${err.message}`));
     });
   }); // Akhir new Promise
-} // Akhir outer try di parsePcapForPacketDisplay, yang sekarang sudah tidak ada karena fetch di luar
+}
+
 
 export async function GET(request: NextRequest, { params }: { params: { analysisId: string } }) {
   try {
@@ -222,9 +218,7 @@ export async function GET(request: NextRequest, { params }: { params: { analysis
       console.error(`[API_GET_PACKET_DATA] PCAP file or blobUrl not found for analysisId: ${analysisIdFromParams}`);
       return NextResponse.json({ error: "PCAP file not found for this analysis" }, { status: 404 });
     }
-
-    // Pindahkan fetch dan parsing ke dalam blok try utama fungsi GET ini
-    // karena parsePcapForPacketDisplay sekarang adalah fungsi async biasa, bukan menangani try-catch luar
+    
     const pcapData = await parsePcapForPacketDisplay(pcapRecord.blobUrl, pcapRecord.originalName);
 
     return NextResponse.json({ success: true, ...pcapData });
