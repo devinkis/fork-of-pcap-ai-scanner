@@ -1,6 +1,10 @@
+// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-fb3444031e0b44895e9fddc8cf7c92cce4812117/app/page.tsx
 import { PcapUploader } from "@/components/pcap-uploader"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { requireAuth } from "@/lib/auth"
+
+// This line tells Next.js to render this page dynamically on every request
+export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   // Require authentication to access the main page
