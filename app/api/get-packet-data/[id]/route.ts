@@ -120,32 +120,34 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
                               protocol = `IPProto-${ipProtocolField}`;
                               info = `IP Protocol ${ipProtocolField}`;
                           }
-                      }
-                  } else if (etherType === 0x86DD) {
-                     protocol = "IPv6";
-                     info = "IPv6 Packet";
-                  } else if (etherType === 0x0806) {
-                     protocol = "ARP";
-                     info = "ARP Packet";
-                  }
-              }
-              const maxHexDumpBytes = 64;
-              const dataToDump = packet.data.slice(0, Math.min(packet.data.length, maxHexDumpBytes));
-              for (let i = 0; i < dataToDump.length; i += 16) {
-                  const slice = dataToDump.slice(i, i + 16);
-                  const hex = slice.toString('hex').match(/.{1,2}/g)?.join(' ') || '';
-                  const ascii = slice.toString('ascii').replace(/[^\x20-\x7E]/g, '.');
-                  hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`);
-              }
-          // Kurung kurawal penutup untuk blok 'try' parsing paket individual
-          // Log Vercel menunjukkan error "Expected a semicolon" sebelum 'catch' di bawah ini.
-          // Ini berarti 'try' di atas tidak ditutup dengan benar.
-      } catch (e: any) { // Ini adalah catch untuk try parsing paket individual
+                      } // Akhir if (packet.data.length >= ipHeaderStart + ipHeaderLength)
+                  } // Akhir if (packet.data.length >= 14 + 20)
+              } else if (etherType === 0x86DD) { // IPv6
+                 protocol = "IPv6";
+                 info = "IPv6 Packet";
+              } else if (etherType === 0x0806) { // ARP
+                 protocol = "ARP";
+                 info = "ARP Packet";
+              } // Akhir if/else if EtherType
+          } // Akhir if (packet.data && packet.data.length >= 14)
+
+          // Logika Hex Dump
+          const maxHexDumpBytes = 64;
+          const dataBufferForDump = packet.data || Buffer.alloc(0); // Pastikan packet.data ada
+          const dataToDump = dataBufferForDump.slice(0, Math.min(dataBufferForDump.length, maxHexDumpBytes));
+          for (let i = 0; i < dataToDump.length; i += 16) {
+              const slice = dataToDump.slice(i, i + 16);
+              const hex = slice.toString('hex').match(/.{1,2}/g)?.join(' ') || '';
+              const ascii = slice.toString('ascii').replace(/[^\x20-\x7E]/g, '.');
+              hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`);
+          }
+      // Ini adalah kurung kurawal penutup yang benar untuk blok 'try' parsing paket individual
+      } catch (e: any) { 
           console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
           info = `Error decoding: ${e.message}`;
           isError = true;
           errorType = "DecodingError";
-      } // PERBAIKAN: Kurung kurawal '}' ini menutup 'try' di atas. Ini sudah benar.
+      } // PERBAIKAN: Penutup blok try sudah benar di sini
 
       const finalPacketData = {
         id: packetCounter,
@@ -182,12 +184,11 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       if (packetCounter >= MAX_PACKETS_FOR_UI_DISPLAY) {
         console.warn(`[API_GET_PACKET_DATA] Reached packet display limit: ${MAX_PACKETS_FOR_UI_DISPLAY}`);
         generateAndResolveConnections(); 
-        // Tidak perlu return di sini karena resolveOnce/rejectOnce akan menangani promise
-        // dan event listener akan tetap terpanggil tapi tidak melakukan apa-apa jika promiseResolved = true
       }
     }); // Akhir parser.on('packet')
     
     const generateAndResolveConnections = () => {
+        if (promiseResolved) return; 
         const connections = Array.from(connectionMap.values());
         console.log(`[API_GET_PACKET_DATA] Resolving with ${parsedPackets.length} packets and ${connections.length} connections.`);
         resolveOnce({ packets: parsedPackets, connections });
@@ -206,6 +207,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
     });
   }); // Akhir new Promise
 } // Akhir fungsi parsePcapForPacketDisplay
+
 
 export async function GET(request: NextRequest, { params }: { params: { analysisId: string } }) {
   try {
