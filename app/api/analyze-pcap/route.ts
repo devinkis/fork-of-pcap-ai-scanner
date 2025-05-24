@@ -1,20 +1,19 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai"; // Menggunakan factory dari @ai-sdk/openai
+import { createOpenAI } from "@ai-sdk/openai";
 import db from "@/lib/neon-db";
-import PcapParser from 'pcap-parser'; // Impor pcap-parser
-// import { Buffer } from 'buffer'; // Mungkin diperlukan jika Buffer tidak tersedia global di environment
+import PcapParser from 'pcap-parser';
+// import { Buffer } from 'buffer'; // Mungkin diperlukan jika Buffer tidak tersedia global
 
-// --- Implementasi Awal parsePcapFile dengan pcap-parser ---
 async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
   console.log(`[PARSE_PCAP_ACTUAL] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
-  try {
+  try { // Outer try
     const pcapResponse = await fetch(fileUrl);
     if (!pcapResponse.ok || !pcapResponse.body) {
       throw new Error(`Failed to download PCAP file: ${pcapResponse.statusText}`);
     }
     const arrayBuffer = await pcapResponse.arrayBuffer();
-    const pcapBuffer = Buffer.from(arrayBuffer); // Konversi ArrayBuffer ke Buffer Node.js
+    const pcapBuffer = Buffer.from(arrayBuffer);
 
     const parser = PcapParser.parse(pcapBuffer);
     
@@ -26,7 +25,7 @@ async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
 
     const ipCounts: { [ip: string]: { sent: number, received: number, sentBytes: number, receivedBytes: number } } = {};
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => { // Start of new Promise
       parser.on('packet', (packet: any) => { 
         packetCount++;
         
@@ -34,18 +33,15 @@ async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
         let destIp = "N/A";
         let protocolName = "UNKNOWN";
         let packetLength = packet.header.capturedLength;
-        let packetInfo = `Raw packet data, length ${packetLength}`; // Info default
+        let packetInfo = `Raw packet data, length ${packetLength}`;
 
-        // Contoh parsing dasar header Ethernet II -> IPv4 -> TCP/UDP/ICMP
-        // Ini adalah contoh yang disederhanakan dan mungkin perlu penyesuaian mendalam.
-        // Anda perlu mempelajari struktur output dari 'pcap-parser' dan byte offset yang benar.
-        if (packet.data && packet.data.length >= 34) { // Min length for Eth + IPv4 header
-            const ethType = packet.data.readUInt16BE(12); // EtherType field
-            if (ethType === 0x0800) { // IPv4
+        if (packet.data && packet.data.length >= 34) { 
+            const ethType = packet.data.readUInt16BE(12); 
+            if (ethType === 0x0800) { 
                 const ipHeaderStart = 14;
                 const ipHeader = packet.data.slice(ipHeaderStart);
                 
-                if (ipHeader.length >= 20) { // Min IPv4 header length
+                if (ipHeader.length >= 20) { 
                     const ipVersion = (ipHeader[0] >> 4) & 0x0F;
                     if (ipVersion === 4) {
                         const ipProtocolField = ipHeader[9];
@@ -59,16 +55,14 @@ async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
                         } else if (ipProtocolField === 6) {
                             protocolName = 'TCP';
                             packetInfo += ` TCP`;
-                            // Anda bisa menambahkan parsing port TCP di sini
                         } else if (ipProtocolField === 17) {
                             protocolName = 'UDP';
                             packetInfo += ` UDP`;
-                            // Anda bisa menambahkan parsing port UDP di sini
                         }
                     }
                 }
-            } else if (ethType === 0x86DD) { // IPv6
-                protocolName = 'IPv6'; // Perlu parsing IPv6 lebih lanjut
+            } else if (ethType === 0x86DD) { 
+                protocolName = 'IPv6'; 
                 packetInfo = `IPv6 packet`;
             }
         }
@@ -99,7 +93,7 @@ async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
 
         if (packetCount >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) {
           console.warn(`[PARSE_PCAP_ACTUAL] Reached packet processing limit for stats: ${MAX_PACKETS_TO_PROCESS_FOR_STATS} for file ${fileName}`);
-          parser.eventNames().forEach(event => parser.removeAllListeners(event as any));
+          parser.eventNames().forEach(event => parser.removeAllListeners(event as any)); 
           
           const topTalkers = Object.entries(ipCounts)
             .map(([ip, data]) => ({ ip, packets: data.sent + data.received, bytes: data.sentBytes + data.receivedBytes }))
@@ -108,18 +102,18 @@ async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
 
           resolve({
             statistics: {
-              totalPackets: packetCount, // Ini adalah jumlah paket yang diproses sejauh ini
+              totalPackets: packetCount, 
               analyzedForStatsPackets: Math.min(packetCount, MAX_PACKETS_TO_PROCESS_FOR_STATS),
               protocols: protocolStats,
               topTalkers: topTalkers,
-              anomalyScore: Math.floor(Math.random() * 30) + 20, // Ganti dengan logika anomali nyata
+              anomalyScore: Math.floor(Math.random() * 30) + 20, 
             },
             samplePackets: samplePacketsForAI,
-            potentialThreatsIdentified: ["Based on preliminary scan..."],
-            dataExfiltrationSigns: "Checking for exfiltration patterns...",
+            potentialThreatsIdentified: ["Based on preliminary scan..."], 
+            dataExfiltrationSigns: "Checking for exfiltration patterns...", 
           });
         }
-      });
+      }); // End of parser.on('packet')
 
       parser.on('end', () => {
         console.log(`[PARSE_PCAP_ACTUAL] Finished parsing. Total packets processed: ${packetCount} for file: ${fileName}`);
@@ -141,19 +135,23 @@ async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
           potentialThreatsIdentified: Object.keys(protocolStats).length > 1 ? ["Diverse protocol usage noted"] : ["Limited protocol diversity"],
           dataExfiltrationSigns: packetCount > 500 ? "Moderate traffic volume observed" : "Low traffic volume",
         });
-      });
+      }); // End of parser.on('end')
 
-      parser.on('error', (err: Error) => {
+      parser.on('error', (err: Error) => { 
         console.error(`[PARSE_PCAP_ACTUAL] Error parsing PCAP file ${fileName}:`, err);
         reject(new Error(`Error parsing PCAP file: ${err.message}`));
-      });
+      }); // End of parser.on('error')
 
-    } catch (error) {
-      console.error(`[PARSE_PCAP_ACTUAL] Outer error in parsePcapFile for ${fileName}:`, error);
-      return Promise.reject(error instanceof Error ? error : new Error("Unknown error during PCAP processing"));
-    }
+    }); // <-- PERBAIKAN: Menutup `new Promise` dengan benar
+    // Baris di atas ditambahkan untuk menutup blok Promise
+    // Ini seharusnya ada sebelum blok 'catch' dari 'try' utama
+
+  } catch (error) { // Ini adalah catch untuk 'try' block di luar Promise
+    console.error(`[PARSE_PCAP_ACTUAL] Outer error in parsePcapFile for ${fileName}:`, error);
+    // Mengembalikan Promise yang di-reject jika terjadi error sebelum Promise dibuat atau saat fetching
+    return Promise.reject(error instanceof Error ? error : new Error("Unknown error during PCAP file pre-processing"));
   }
-}
+} // End of async function parsePcapFile
 // --- Akhir dari implementasi awal parsePcapFile ---
 
 
@@ -168,15 +166,13 @@ if (openRouterApiKey && openRouterApiKey.trim() !== "") {
     apiKey: openRouterApiKey,
     baseURL: openRouterBaseURL,
   });
-  console.log("[API_ANALYZE_PCAP_CONFIG] OpenRouter provider configured using createOpenAI from @ai-sdk/openai.");
+  console.log("[API_ANALYZE_PCAP_CONFIG] OpenRouter provider configured using createOpenAI.");
 } else {
   console.error("[CRITICAL_CONFIG_ERROR] OPENROUTER_API_KEY environment variable is missing or empty. AI features will be disabled.");
 }
 
-// Fungsi untuk membersihkan string JSON dari markdown backticks
 function extractJsonFromString(text: string): string | null {
     console.log("[EXTRACT_JSON] Original AI text length:", text.length);
-    // Mencari ```json ... ``` atau ``` ... ```
     const regex = /```(?:json)?\s*([\s\S]*?)\s*```/;
     const match = text.match(regex);
   
@@ -185,14 +181,13 @@ function extractJsonFromString(text: string): string | null {
       return match[1].trim();
     }
     
-    // Jika tidak ada backticks, coba cari '{' pertama dan '}' terakhir
     const firstBrace = text.indexOf('{');
     const lastBrace = text.lastIndexOf('}');
     
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
       const potentialJson = text.substring(firstBrace, lastBrace + 1);
       try {
-          JSON.parse(potentialJson); // Validasi sederhana
+          JSON.parse(potentialJson);
           console.log("[EXTRACT_JSON] JSON found by brace matching.");
           return potentialJson;
       } catch (e) {
@@ -206,8 +201,8 @@ function extractJsonFromString(text: string): string | null {
 
 export async function POST(request: NextRequest) {
   let analysisIdFromBody: string | undefined;
-  let rawAnalysisTextForErrorLog: string | undefined; // Untuk logging jika JSON.parse gagal
-  let cleanedJsonTextForErrorLog: string | undefined; // Untuk logging jika JSON.parse gagal
+  let rawAnalysisTextForErrorLog: string | undefined; 
+  let cleanedJsonTextForErrorLog: string | undefined; 
 
   try {
     const body = await request.json();
@@ -311,18 +306,18 @@ export async function POST(request: NextRequest) {
       `,
     });
 
-    rawAnalysisTextForErrorLog = rawAnalysisText; // Simpan untuk logging jika parse gagal
+    rawAnalysisTextForErrorLog = rawAnalysisText; 
     console.log(`[API_ANALYZE_PCAP] AI analysis raw response received (length: ${rawAnalysisText.length}) for analysisId: ${analysisIdFromBody}`);
     
     const cleanedJsonText = extractJsonFromString(rawAnalysisText);
-    cleanedJsonTextForErrorLog = cleanedJsonText; // Simpan untuk logging
+    cleanedJsonTextForErrorLog = cleanedJsonText; 
 
     if (!cleanedJsonText) {
         console.error(`[API_ANALYZE_PCAP] Failed to extract valid JSON from AI response for analysisId: ${analysisIdFromBody}. Raw text was:`, rawAnalysisText);
         throw new Error("AI returned data in an unrecoverable format or empty after cleaning.");
     }
     
-    console.log(`[API_ANALYZE_PCAP] Cleaned JSON text for parsing (length: ${cleanedJsonText.length}):`, cleanedJsonText.substring(0, 200) + "..."); // Log sebagian kecil
+    console.log(`[API_ANALYZE_PCAP] Cleaned JSON text for parsing (length: ${cleanedJsonText.length}):`, cleanedJsonText.substring(0, 200) + "...");
     const aiAnalysis = JSON.parse(cleanedJsonText); 
     console.log(`[API_ANALYZE_PCAP] AI analysis parsed successfully for analysisId: ${analysisIdFromBody}`);
 
