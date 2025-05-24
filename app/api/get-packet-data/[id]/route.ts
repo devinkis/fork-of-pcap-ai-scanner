@@ -3,8 +3,11 @@ import db from "@/lib/neon-db";
 import PcapParser from 'pcap-parser';
 import { Readable } from 'stream';
 
-async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Promise<{ packets: any[], connections: any[] }> {
-  console.log(`[API_GET_PACKET_DATA] Parsing PCAP for Packet Display: ${fileName} from ${fileUrl}`);
+// Fungsi ini akan mem-parsing file PCAP dan mengekstrak informasi paket
+// PENTING: Logika parsing di sini masih dasar dan PERLU DIKEMBANGKAN
+// agar bisa mengekstrak detail yang lebih akurat dan lengkap (IP, port, protokol, dll.)
+async function parsePcapFileForPacketDisplay(fileUrl: string, fileName: string): Promise<{ packets: any[], connections: any[] }> {
+  console.log(`[API_GET_PACKET_DATA] Starting to parse PCAP for Packet Display: ${fileName} from ${fileUrl}`);
   
   const pcapResponse = await fetch(fileUrl);
   if (!pcapResponse.ok || !pcapResponse.body) {
@@ -18,7 +21,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
 
   const parsedPackets: any[] = [];
   let packetCounter = 0;
-  const MAX_PACKETS_FOR_UI_DISPLAY = 500;
+  const MAX_PACKETS_FOR_UI_DISPLAY = 1000; // Naikkan batas jika diperlukan, perhatikan performa
   let promiseResolved = false;
 
   const connectionMap = new Map<string, any>();
@@ -28,7 +31,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
         if (!promiseResolved) {
           promiseResolved = true;
           if (parser && typeof parser.removeAllListeners === 'function') {
-            parser.removeAllListeners();
+            parser.removeAllListeners(); // Coba hentikan semua listener
           }
           resolve(data);
         }
@@ -51,8 +54,8 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       let destIp = "N/A";
       let sourcePort: number | undefined;
       let destPort: number | undefined;
-      let protocol = "UNKNOWN";
-      let info = "Raw Data";
+      let protocol = "UNKNOWN"; // Default jika tidak terdeteksi
+      let info = "Raw Link Layer Data"; // Info default
       let flags: string[] = [];
       let tcpSeq: number | undefined;
       let tcpAck: number | undefined;
@@ -60,80 +63,126 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       let ttl: number | undefined;
       let isError = false; 
       let errorType: string | undefined;
-      let detailedInfo: any = { "Frame Info": { Number: packetCounter, Length: packet.header.capturedLength }};
+      let detailedInfo: any = { 
+        "Frame Information": { 
+            Number: packetCounter, 
+            CapturedLength: packet.header.capturedLength,
+            OriginalLength: packet.header.originalLength,
+            Timestamp: new Date(packet.header.timestampSeconds * 1000 + packet.header.timestampMicroseconds / 1000).toISOString()
+        }
+      };
       let hexDump : string[] = [];
 
-      try { // Awal blok try untuk parsing paket individual
-          if (packet.data && packet.data.length >= 14) { 
-              detailedInfo["Ethernet II"] = { Source: "xx:xx:xx:xx:xx:xx", Destination: "yy:yy:yy:yy:yy:yy"}; 
-              const etherType = packet.data.readUInt16BE(12);
-              if (etherType === 0x0800) { 
-                  protocol = "IPv4"; 
-                  if (packet.data.length >= 14 + 20) { 
-                      const ipHeaderStart = 14;
-                      const ipHeaderIHL = (packet.data[ipHeaderStart] & 0x0F);
-                      const ipHeaderLength = ipHeaderIHL * 4;
-                      
-                      if (packet.data.length >= ipHeaderStart + ipHeaderLength) {
-                          const ipHeader = packet.data.slice(ipHeaderStart, ipHeaderStart + ipHeaderLength);
-                          sourceIp = `${ipHeader[12]}.${ipHeader[13]}.${ipHeader[14]}.${ipHeader[15]}`;
-                          destIp = `${ipHeader[16]}.${ipHeader[17]}.${ipHeader[18]}.${ipHeader[19]}`;
-                          ttl = ipHeader[8];
-                          const ipProtocolField = ipHeader[9];
-                          detailedInfo["IPv4"] = { Source: sourceIp, Destination: destIp, TTL: ttl, Protocol: ipProtocolField };
-                          
-                          const transportHeaderStart = ipHeaderStart + ipHeaderLength;
+      try {
+          const packetDataBuffer = packet.data; // Buffer data mentah dari link layer
+          if (packetDataBuffer && packetDataBuffer.length >= 14) { // Minimal untuk Ethernet Header
+              const etherType = packetDataBuffer.readUInt16BE(12);
+              detailedInfo["Ethernet II"] = { EtherType: `0x${etherType.toString(16)}`};
 
-                          if (ipProtocolField === 6) { 
-                              protocol = "TCP";
-                              if (packet.data.length >= transportHeaderStart + 20) { 
-                                  const tcpHeader = packet.data.slice(transportHeaderStart, transportHeaderStart + 20);
-                                  sourcePort = tcpHeader.readUInt16BE(0);
-                                  destPort = tcpHeader.readUInt16BE(2);
-                                  tcpSeq = tcpHeader.readUInt32BE(4);
-                                  tcpAck = tcpHeader.readUInt32BE(8);
-                                  const flagsByte = tcpHeader[13];
-                                  if (flagsByte & 0x01) flags.push("FIN");
-                                  if (flagsByte & 0x02) flags.push("SYN");
-                                  if (flagsByte & 0x04) flags.push("RST");
-                                  if (flagsByte & 0x08) flags.push("PSH");
-                                  if (flagsByte & 0x10) flags.push("ACK");
-                                  if (flagsByte & 0x20) flags.push("URG");
-                                  windowSize = tcpHeader.readUInt16BE(14);
-                                  info = flags.length > 0 ? flags.join(", ") : "TCP Segment";
-                                  detailedInfo["TCP"] = { SourcePort: sourcePort, DestinationPort: destPort, Seq: tcpSeq, Ack: tcpAck, Flags: flags.join(', '), Window: windowSize };
+              if (etherType === 0x0800) { // IPv4
+                  const ipHeaderStart = 14;
+                  if (packetDataBuffer.length >= ipHeaderStart + 20) { // Minimal untuk IPv4 Header dasar
+                      const ipVersionAndIHL = packetDataBuffer[ipHeaderStart];
+                      const ipVersion = (ipVersionAndIHL >> 4) & 0x0F;
+                      if (ipVersion === 4) {
+                          protocol = "IPv4"; // Ini adalah protokol layer 3
+                          const ipHeaderIHL = (ipVersionAndIHL & 0x0F);
+                          const ipHeaderLength = ipHeaderIHL * 4;
+
+                          if (packetDataBuffer.length >= ipHeaderStart + ipHeaderLength) {
+                              const ipHeader = packetDataBuffer.slice(ipHeaderStart, ipHeaderStart + ipHeaderLength);
+                              sourceIp = `${ipHeader[12]}.${ipHeader[13]}.${ipHeader[14]}.${ipHeader[15]}`;
+                              destIp = `${ipHeader[16]}.${ipHeader[17]}.${ipHeader[18]}.${ipHeader[19]}`;
+                              ttl = ipHeader[8];
+                              const ipProtocolField = ipHeader[9];
+                              detailedInfo["IPv4"] = { 
+                                  Version: ipVersion, HeaderLength: ipHeaderLength, TTL: ttl, 
+                                  Protocol: ipProtocolField, SourceAddress: sourceIp, DestinationAddress: destIp,
+                                  TotalLength: ipHeader.readUInt16BE(2), Identification: `0x${ipHeader.readUInt16BE(4).toString(16)}`
+                              };
+                              
+                              info = `IPv4 ${sourceIp} -> ${destIp}`;
+                              const transportHeaderStart = ipHeaderStart + ipHeaderLength;
+
+                              if (ipProtocolField === 1) { // ICMP
+                                  protocol = "ICMP";
+                                  info += ` (ICMP)`;
+                                  // Parsing ICMP dasar
+                                  if (packetDataBuffer.length >= transportHeaderStart + 4) {
+                                      const icmpType = packetDataBuffer[transportHeaderStart];
+                                      const icmpCode = packetDataBuffer[transportHeaderStart + 1];
+                                      detailedInfo["ICMP"] = { Type: icmpType, Code: icmpCode };
+                                      info += ` Type ${icmpType} Code ${icmpCode}`;
+                                  }
+                              } else if (ipProtocolField === 6) { // TCP
+                                  protocol = "TCP";
+                                  if (packetDataBuffer.length >= transportHeaderStart + 20) { // Min TCP header
+                                      const tcpHeader = packetDataBuffer.slice(transportHeaderStart, transportHeaderStart + 20); // Asumsi dasar 20 byte
+                                      sourcePort = tcpHeader.readUInt16BE(0);
+                                      destPort = tcpHeader.readUInt16BE(2);
+                                      tcpSeq = tcpHeader.readUInt32BE(4);
+                                      tcpAck = tcpHeader.readUInt32BE(8);
+                                      const dataOffsetByte = tcpHeader[12]; // Data Offset (4 bits) + Reserved (4 bits)
+                                      const tcpHeaderLength = ((dataOffsetByte & 0xF0) >> 4) * 4;
+                                      const flagsByte = tcpHeader[13];
+                                      
+                                      flags = [];
+                                      if (flagsByte & 0x01) flags.push("FIN");
+                                      if (flagsByte & 0x02) flags.push("SYN");
+                                      if (flagsByte & 0x04) flags.push("RST");
+                                      if (flagsByte & 0x08) flags.push("PSH");
+                                      if (flagsByte & 0x10) flags.push("ACK");
+                                      if (flagsByte & 0x20) flags.push("URG");
+                                      // Tambahkan CWR, ECE jika perlu dari byte sebelumnya (offset 12, bit 7 dan 6)
+
+                                      windowSize = tcpHeader.readUInt16BE(14);
+                                      info = `${sourcePort} → ${destPort} [${flags.join(', ')}] Seq=${tcpSeq} Ack=${tcpAck} Win=${windowSize} Len=${packet.header.capturedLength - (transportHeaderStart + tcpHeaderLength)}`;
+                                      detailedInfo["TCP"] = { 
+                                          SourcePort: sourcePort, DestinationPort: destPort, 
+                                          SequenceNumber: tcpSeq, AckNumber: tcpAck, HeaderLength: tcpHeaderLength,
+                                          Flags: flags.join(', '), WindowSize: windowSize,
+                                          Checksum: `0x${tcpHeader.readUInt16BE(16).toString(16)}`,
+                                          UrgentPointer: tcpHeader.readUInt16BE(18)
+                                      };
+                                      if (flags.includes("RST")) { isError = true; errorType = "TCP Reset"; }
+                                  } else { info = "TCP (Truncated Header)"; isError = true; errorType = "TruncatedTCP"; }
+                              } else if (ipProtocolField === 17) { // UDP
+                                  protocol = "UDP";
+                                  if (packetDataBuffer.length >= transportHeaderStart + 8) { 
+                                      const udpHeader = packetDataBuffer.slice(transportHeaderStart, transportHeaderStart + 8);
+                                      sourcePort = udpHeader.readUInt16BE(0);
+                                      destPort = udpHeader.readUInt16BE(2);
+                                      const udpLength = udpHeader.readUInt16BE(4);
+                                      info = `${sourcePort} → ${destPort} Len=${udpLength - 8}`; // UDP payload length
+                                      detailedInfo["UDP"] = { 
+                                          SourcePort: sourcePort, DestinationPort: destPort, 
+                                          Length: udpLength, Checksum: `0x${udpHeader.readUInt16BE(6).toString(16)}`
+                                      };
+                                  } else { info = "UDP (Truncated Header)"; isError = true; errorType = "TruncatedUDP"; }
+                              } else {
+                                  protocol = `IPProto-${ipProtocolField}`;
+                                  info = `IP Protocol ${ipProtocolField}`;
                               }
-                          } else if (ipProtocolField === 17) { 
-                              protocol = "UDP";
-                               if (packet.data.length >= transportHeaderStart + 8) { 
-                                  const udpHeader = packet.data.slice(transportHeaderStart, transportHeaderStart + 8);
-                                  sourcePort = udpHeader.readUInt16BE(0);
-                                  destPort = udpHeader.readUInt16BE(2);
-                                  info = `UDP, Src Port: ${sourcePort}, Dst Port: ${destPort}`;
-                                  detailedInfo["UDP"] = { SourcePort: sourcePort, DestinationPort: destPort, Length: udpHeader.readUInt16BE(4) };
-                               }
-                          } else if (ipProtocolField === 1) {
-                              protocol = "ICMP";
-                              info = "ICMP Packet"; 
-                              detailedInfo["ICMP"] = { Type: "N/A", Code: "N/A" };
-                          } else {
-                              protocol = `IPProto-${ipProtocolField}`;
-                              info = `IP Protocol ${ipProtocolField}`;
-                          }
-                      } // Akhir if (packet.data.length >= ipHeaderStart + ipHeaderLength)
-                  } // Akhir if (packet.data.length >= 14 + 20)
+                          } else { info = "IPv4 (Truncated IP Header)"; isError = true; errorType = "TruncatedIP"; }
+                      } else { info = "IPv4 (Short Packet)"; isError = true; errorType = "ShortIPPacket"; }
+                  } // Akhir if IPv4
               } else if (etherType === 0x86DD) { // IPv6
                  protocol = "IPv6";
-                 info = "IPv6 Packet";
+                 info = "IPv6 Packet (detail parsing not fully implemented)";
+                 detailedInfo["IPv6"] = { Payload: "Further parsing needed" };
               } else if (etherType === 0x0806) { // ARP
                  protocol = "ARP";
-                 info = "ARP Packet";
-              } // Akhir if/else if EtherType
-          } // Akhir if (packet.data && packet.data.length >= 14)
+                 info = "ARP Packet (detail parsing not fully implemented)";
+                 detailedInfo["ARP"] = { Payload: "Further parsing needed" };
+              } else {
+                 protocol = `EtherType-0x${etherType.toString(16)}`;
+                 info = `EtherType 0x${etherType.toString(16)}`;
+              }
+          } // Akhir if packet.data
 
-          // Logika Hex Dump
-          const maxHexDumpBytes = 64;
-          const dataBufferForDump = packet.data || Buffer.alloc(0); // Pastikan packet.data ada
+          // Hex Dump
+          const maxHexDumpBytes = 128; // Tampilkan lebih banyak byte untuk detail
+          const dataBufferForDump = packet.data || Buffer.alloc(0);
           const dataToDump = dataBufferForDump.slice(0, Math.min(dataBufferForDump.length, maxHexDumpBytes));
           for (let i = 0; i < dataToDump.length; i += 16) {
               const slice = dataToDump.slice(i, i + 16);
@@ -141,13 +190,12 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
               const ascii = slice.toString('ascii').replace(/[^\x20-\x7E]/g, '.');
               hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`);
           }
-      // Ini adalah kurung kurawal penutup yang benar untuk blok 'try' parsing paket individual
       } catch (e: any) { 
-          console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
+          console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}. Packet data (hex): ${packet.data?.toString('hex').substring(0,60)}`);
           info = `Error decoding: ${e.message}`;
           isError = true;
           errorType = "DecodingError";
-      } // PERBAIKAN: Penutup blok try sudah benar di sini
+      }
 
       const finalPacketData = {
         id: packetCounter,
@@ -159,6 +207,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       };
       parsedPackets.push(finalPacketData);
 
+      // Logika untuk koneksi (bisa disempurnakan)
       if ((protocol === "TCP" || protocol === "UDP") && sourcePort !== undefined && destPort !== undefined && sourceIp !== "N/A" && destIp !== "N/A") {
           const connIdFwd = `${sourceIp}:${sourcePort}-${destIp}:${destPort}-${protocol}`;
           const connIdRev = `${destIp}:${destPort}-${sourceIp}:${sourcePort}-${protocol}`;
@@ -167,17 +216,24 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
           if (!connectionMap.has(connId)) {
               connectionMap.set(connId, {
                   id: connId, sourceIp, sourcePort, destIp, destPort, protocol,
-                  state: "ACTIVE", packets: [packetCounter], startTime: finalPacketData.timestamp,
+                  state: protocol === "TCP" ? (flags.includes("SYN") ? "SYN_SENT" : "ACTIVE") : "ACTIVE", 
+                  packets: [packetCounter], startTime: finalPacketData.timestamp,
                   hasErrors: isError, errorTypes: isError && errorType ? [errorType] : []
               });
           } else {
               const conn = connectionMap.get(connId);
               conn.packets.push(packetCounter);
               conn.endTime = finalPacketData.timestamp;
-              if (isError) conn.hasErrors = true;
+              if (isError && !conn.hasErrors) conn.hasErrors = true; // Set hasErrors jika ada error di paket
               if (isError && errorType && !conn.errorTypes.includes(errorType)) conn.errorTypes.push(errorType);
-              if (protocol === "TCP" && flags.includes("RST")) conn.state = "RESET";
-              else if (protocol === "TCP" && flags.includes("FIN")) conn.state = "CLOSING";
+              
+              if (protocol === "TCP") {
+                if (flags.includes("RST")) conn.state = "RESET";
+                else if (flags.includes("FIN") && flags.includes("ACK")) conn.state = "FIN_ACK";
+                else if (flags.includes("FIN")) conn.state = "FIN_WAIT";
+                else if (flags.includes("SYN") && flags.includes("ACK") && conn.state === "SYN_SENT") conn.state = "ESTABLISHED";
+                else if (flags.includes("SYN") && conn.state !== "ESTABLISHED") conn.state = "SYN_SENT"; // Atau SYN_RCVD
+              }
           }
       }
 
@@ -185,7 +241,7 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
         console.warn(`[API_GET_PACKET_DATA] Reached packet display limit: ${MAX_PACKETS_FOR_UI_DISPLAY}`);
         generateAndResolveConnections(); 
       }
-    }); // Akhir parser.on('packet')
+    }); 
     
     const generateAndResolveConnections = () => {
         if (promiseResolved) return; 
@@ -205,8 +261,8 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       console.error(`[API_GET_PACKET_DATA] Error parsing PCAP stream:`, err);
       rejectOnce(new Error(`Error parsing PCAP stream: ${err.message}`));
     });
-  }); // Akhir new Promise
-} // Akhir fungsi parsePcapForPacketDisplay
+  }); 
+}
 
 
 export async function GET(request: NextRequest, { params }: { params: { analysisId: string } }) {
