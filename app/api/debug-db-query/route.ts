@@ -10,7 +10,7 @@ export async function GET() {
       return NextResponse.json({ error: "Auth needed" }, { status: 401 });
     }
 
-    const hardcodedAnalysisId = "YOUR_EXISTING_ANALYSIS_ID_FROM_DB"; // Replace with a real analysis ID
+    const hardcodedAnalysisId = "e075d6d1-73c3-4af9-a59d-a944d57f5af9"; // Replace with a real analysis ID
     const hardcodedUserId = user.id; // Use the authenticated user's ID
 
     console.log(`DEBUG_TEST: Calling findFirst with hardcoded values: analysisId=<span class="math-inline">\{hardcodedAnalysisId\}, userId\=</span>{hardcodedUserId}`);
