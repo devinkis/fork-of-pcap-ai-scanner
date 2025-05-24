@@ -3,10 +3,9 @@ import db from "@/lib/neon-db";
 import PcapParser from 'pcap-parser';
 import { Readable } from 'stream';
 
-// Fungsi parsing PCAP (adaptasi dari yang sudah kita buat untuk AI Insight)
-// Anda HARUS MENGEMBANGKAN INI SECARA DETAIL untuk parsing yang akurat
 async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Promise<{ packets: any[], connections: any[] }> {
   console.log(`[API_GET_PACKET_DATA] Parsing PCAP for Packet Display: ${fileName} from ${fileUrl}`);
+  
   const pcapResponse = await fetch(fileUrl);
   if (!pcapResponse.ok || !pcapResponse.body) {
     throw new Error(`Failed to download PCAP file: ${pcapResponse.statusText}`);
@@ -20,27 +19,33 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
   const parsedPackets: any[] = [];
   let packetCounter = 0;
   const MAX_PACKETS_FOR_UI_DISPLAY = 500;
-  let promiseResolved = false;
+  let promiseResolved = false; // Flag untuk memastikan resolve/reject hanya sekali
 
   const connectionMap = new Map<string, any>();
-
 
   return new Promise((resolve, reject) => {
     const resolveOnce = (data: { packets: any[], connections: any[] }) => {
         if (!promiseResolved) {
           promiseResolved = true;
+          // Pastikan parser berhenti memproses jika sudah resolve/reject
+          if (parser && typeof parser.removeAllListeners === 'function') {
+            parser.removeAllListeners();
+          }
           resolve(data);
         }
     };
     const rejectOnce = (error: Error) => {
         if (!promiseResolved) {
           promiseResolved = true;
+          if (parser && typeof parser.removeAllListeners === 'function') {
+            parser.removeAllListeners();
+          }
           reject(error);
         }
     };
 
     parser.on('packet', (packet: any) => {
-      if (promiseResolved) return;
+      if (promiseResolved) return; // Jika sudah selesai, jangan proses lagi
       packetCounter++;
 
       let sourceIp = "N/A";
@@ -133,36 +138,25 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
                   const ascii = slice.toString('ascii').replace(/[^\x20-\x7E]/g, '.');
                   hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`);
               }
-      } catch (e: any) { // Awal blok catch untuk parsing paket individual
+        // Kurung kurawal penutup untuk blok 'try' parsing paket individual
+        } catch (e: any) { 
           console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
           info = `Error decoding: ${e.message}`;
           isError = true;
           errorType = "DecodingError";
-      } // <-- PERBAIKAN: Kurung kurawal penutup untuk blok try di atas ditambahkan di sini
+        } // Ini adalah penutup 'try' yang benar
 
       const finalPacketData = {
         id: packetCounter,
         timestamp: new Date(packet.header.timestampSeconds * 1000 + packet.header.timestampMicroseconds / 1000).toISOString(),
-        sourceIp,
-        sourcePort,
-        destIp,
-        destPort,
-        protocol,
-        length: packet.header.capturedLength,
-        info,
-        flags,
-        tcpSeq,
-        tcpAck,
-        windowSize,
-        ttl,
-        isError,
-        errorType,
-        hexDump,
-        detailedInfo
+        sourceIp, sourcePort, destIp, destPort, protocol,
+        length: packet.header.capturedLength, info, flags,
+        tcpSeq, tcpAck, windowSize, ttl,
+        isError, errorType, hexDump, detailedInfo
       };
       parsedPackets.push(finalPacketData);
 
-      if ((protocol === "TCP" || protocol === "UDP") && sourcePort && destPort && sourceIp !== "N/A" && destIp !== "N/A") {
+      if ((protocol === "TCP" || protocol === "UDP") && sourcePort !== undefined && destPort !== undefined && sourceIp !== "N/A" && destIp !== "N/A") {
           const connIdFwd = `${sourceIp}:${sourcePort}-${destIp}:${destPort}-${protocol}`;
           const connIdRev = `${destIp}:${destPort}-${sourceIp}:${sourcePort}-${protocol}`;
           const connId = connectionMap.has(connIdFwd) ? connIdFwd : connectionMap.has(connIdRev) ? connIdRev : connIdFwd;
@@ -189,8 +183,8 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
         if (parser && typeof parser.removeAllListeners === 'function') {
             parser.removeAllListeners();
         }
-        generateAndResolveConnections();
-        return; 
+        generateAndResolveConnections(); // Memanggil fungsi di dalam event handler
+        // Tidak perlu 'return;' di sini karena resolveOnce/rejectOnce akan menghentikan promise
       }
     }); // Akhir parser.on('packet')
     
@@ -201,70 +195,22 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
     };
     
     parser.on('end', () => {
+      if (promiseResolved) return;
       console.log(`[API_GET_PACKET_DATA] Finished parsing PCAP stream. Total packets: ${packetCounter}`);
       generateAndResolveConnections();
     });
 
     parser.on('error', (err: Error) => {
+      if (promiseResolved) return;
       console.error(`[API_GET_PACKET_DATA] Error parsing PCAP stream:`, err);
       rejectOnce(new Error(`Error parsing PCAP stream: ${err.message}`));
     });
   }); // Akhir new Promise
-} // Akhir outer try di parsePcapForPacketDisplay
+} // Akhir outer try di parsePcapForPacketDisplay, yang sekarang sudah tidak ada karena fetch di luar
 
-// --- Sisa kode (OpenRouter client, extractJsonFromString, dan fungsi POST handler) ---
-// Tetap sama seperti versi sebelumnya.
-
-const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct"; 
-
-let openRouterProvider: ReturnType<typeof createOpenAI> | null = null;
-
-if (openRouterApiKey && openRouterApiKey.trim() !== "") {
-  openRouterProvider = createOpenAI({
-    apiKey: openRouterApiKey,
-    baseURL: openRouterBaseURL,
-  });
-  console.log("[API_ANALYZE_PCAP_CONFIG] OpenRouter provider configured using createOpenAI.");
-} else {
-  console.error("[CRITICAL_CONFIG_ERROR] OPENROUTER_API_KEY environment variable is missing or empty. AI features will be disabled.");
-}
-
-function extractJsonFromString(text: string): string | null {
-    if (!text || text.trim() === "") {
-        console.warn("[EXTRACT_JSON] AI returned empty or whitespace-only text.");
-        return null; 
-    }
-    console.log("[EXTRACT_JSON] Original AI text (first 500 chars):", text.substring(0, 500));
-    const markdownRegex = /```(?:json)?\s*([\s\S]*?)\s*```/;
-    const markdownMatch = text.match(markdownRegex);
-
-    if (markdownMatch && markdownMatch[1]) {
-        const extracted = markdownMatch[1].trim();
-        console.log("[EXTRACT_JSON] JSON found inside markdown backticks. Length:", extracted.length);
-        return extracted;
-    }
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-        const potentialJson = text.substring(firstBrace, lastBrace + 1);
-        try {
-            JSON.parse(potentialJson); 
-            console.log("[EXTRACT_JSON] JSON found by brace matching. Length:", potentialJson.length);
-            return potentialJson;
-        } catch (e) {
-            console.warn("[EXTRACT_JSON] Brace matching did not yield valid JSON, returning original text for parsing attempt.");
-        }
-    }
-    const trimmedText = text.trim();
-    console.log("[EXTRACT_JSON] No markdown or clear JSON object found, returning original trimmed text. Length:", trimmedText.length);
-    return trimmedText === "" ? null : trimmedText; 
-}
-
-export async function GET(request: NextRequest, { params }: { params: { analysisId: string } }) { // Nama parameter analysisId di GET
+export async function GET(request: NextRequest, { params }: { params: { analysisId: string } }) {
   try {
-    const analysisIdFromParams = params.analysisId; // Mengambil analysisId dari params
+    const analysisIdFromParams = params.analysisId;
     if (!analysisIdFromParams) {
       return NextResponse.json({ error: "Analysis ID is required in path" }, { status: 400 });
     }
@@ -277,6 +223,8 @@ export async function GET(request: NextRequest, { params }: { params: { analysis
       return NextResponse.json({ error: "PCAP file not found for this analysis" }, { status: 404 });
     }
 
+    // Pindahkan fetch dan parsing ke dalam blok try utama fungsi GET ini
+    // karena parsePcapForPacketDisplay sekarang adalah fungsi async biasa, bukan menangani try-catch luar
     const pcapData = await parsePcapForPacketDisplay(pcapRecord.blobUrl, pcapRecord.originalName);
 
     return NextResponse.json({ success: true, ...pcapData });
