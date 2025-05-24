@@ -1,11 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
-// --- PERUBAHAN IMPORT UTAMA ---
-import { createOpenAI } from "@ai-sdk/openai"; // Impor createOpenAI dari @ai-sdk/openai
+import { createOpenAI } from "@ai-sdk/openai";
 import db from "@/lib/neon-db";
 
 // --- Placeholder untuk fungsi parsing PCAP ---
-// Anda HARUS mengimplementasikan fungsi ini menggunakan library parsing PCAP pilihan Anda.
 async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
   console.log(`[PARSE_PCAP_PLACEHOLDER] Attempting to "parse" PCAP file from URL: ${fileUrl} (File: ${fileName})`);
   const randomFactor = Math.random();
@@ -54,27 +52,56 @@ async function parsePcapFile(fileUrl: string, fileName: string): Promise<any> {
 // --- Akhir dari placeholder ---
 
 const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "[https://openrouter.ai/api/v1](https://openrouter.ai/api/v1)";
 const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct";
 
 let openRouterProvider: ReturnType<typeof createOpenAI> | null = null;
 
 if (openRouterApiKey && openRouterApiKey.trim() !== "") {
-  // --- PERUBAHAN INISIALISASI CLIENT ---
   openRouterProvider = createOpenAI({
     apiKey: openRouterApiKey,
     baseURL: openRouterBaseURL,
-    // Anda bisa menambahkan header kustom di sini jika diperlukan oleh OpenRouter
-    // dan didukung oleh createOpenAI, contoh:
-    // headers: {
-    //   'HTTP-Referer': process.env.YOUR_SITE_URL, // Ambil dari env var
-    //   'X-Title': process.env.YOUR_APP_NAME,    // Ambil dari env var
-    // }
   });
   console.log("[API_ANALYZE_PCAP_CONFIG] OpenRouter provider configured using createOpenAI from @ai-sdk/openai.");
 } else {
   console.error("[CRITICAL_CONFIG_ERROR] OPENROUTER_API_KEY environment variable is missing or empty. AI features will be disabled.");
 }
+
+// Fungsi untuk membersihkan string JSON dari markdown backticks
+function extractJsonFromString(text: string): string | null {
+  console.log("[EXTRACT_JSON] Original AI text:", text);
+  // Mencari ```json ... ``` atau ``` ... ```
+  const regex = /```(?:json)?\s*([\s\S]*?)\s*```/;
+  const match = text.match(regex);
+
+  if (match && match[1]) {
+    console.log("[EXTRACT_JSON] JSON found inside markdown backticks.");
+    return match[1].trim();
+  }
+  
+  // Jika tidak ada backticks, coba cari '{' pertama dan '}' terakhir
+  // Ini kurang robust tapi bisa membantu untuk kasus JSON tanpa backticks tapi ada teks lain
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const potentialJson = text.substring(firstBrace, lastBrace + 1);
+    try {
+        // Validasi sederhana apakah ini terlihat seperti JSON
+        JSON.parse(potentialJson);
+        console.log("[EXTRACT_JSON] JSON found by brace matching.");
+        return potentialJson;
+    } catch (e) {
+        // Bukan JSON yang valid dari brace matching, kembalikan teks asli untuk parsing berikutnya
+        console.warn("[EXTRACT_JSON] Brace matching did not yield valid JSON, returning original text for parsing attempt.");
+    }
+  }
+  
+  // Jika tidak ada format markdown, asumsikan seluruh teks adalah JSON (atau akan gagal parsing nanti)
+  console.log("[EXTRACT_JSON] No markdown backticks found, assuming raw JSON or will fail parsing.");
+  return text.trim(); 
+}
+
 
 export async function POST(request: NextRequest) {
   let analysisIdFromBody: string | undefined;
@@ -126,12 +153,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisIdFromBody}`);
 
-    const { text: analysis } = await generateText({
-      // --- PERUBAHAN PENGGUNAAN MODEL ---
-      model: openRouterProvider(modelNameFromEnv as any), // Memanggil provider dengan nama model
-      // atau jika provider mengembalikan objek dengan metode .chat():
-      // model: openRouterProvider.chat(modelNameFromEnv as any),
-      // Coba salah satu dari ini, tergantung struktur objek yang dikembalikan createOpenAI
+    const { text: rawAnalysisText } = await generateText({
+      model: openRouterProvider(modelNameFromEnv as any),
       prompt: `
         You are a network security expert analyzing PCAP data.
         The data is from file: "${dataForAI.fileName}" (size: ${dataForAI.fileSize} bytes, analysis ID: ${dataForAI.analysisId}).
@@ -180,12 +203,20 @@ export async function POST(request: NextRequest) {
           "recommendations": [ { "title": "...", ... } ],
           "timeline": [ { "time": "...", "event": "...", "severity": "..." } ]
         }
-        Ensure all string values within the JSON are properly escaped. If you cannot provide certain fields because the data is insufficient, omit them or provide an empty array/object as appropriate for the JSON structure. If the input data is minimal or contains no clear security events, state that in the summary and provide minimal or empty arrays for findings/iocs.
+        Ensure all string values within the JSON are properly escaped. Your response MUST start with '{' and end with '}'. Do NOT include any text or markdown formatting (like \`\`\`json) before or after the JSON object itself.
       `,
     });
 
     console.log(`[API_ANALYZE_PCAP] AI analysis raw response received for analysisId: ${analysisIdFromBody}`);
-    const aiAnalysis = JSON.parse(analysis);
+    
+    const cleanedJsonText = extractJsonFromString(rawAnalysisText);
+    if (!cleanedJsonText) {
+        console.error(`[API_ANALYZE_PCAP] Failed to extract valid JSON from AI response for analysisId: ${analysisIdFromBody}. Raw text:`, rawAnalysisText);
+        throw new Error("AI returned data in an unrecoverable format.");
+    }
+    
+    console.log(`[API_ANALYZE_PCAP] Cleaned JSON text for parsing:`, cleanedJsonText);
+    const aiAnalysis = JSON.parse(cleanedJsonText); // Parse JSON yang sudah dibersihkan
     console.log(`[API_ANALYZE_PCAP] AI analysis parsed successfully for analysisId: ${analysisIdFromBody}`);
 
     return NextResponse.json({
@@ -202,8 +233,10 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && (error.name === 'AI_LoadAPIKeyError' || error.message.includes("API key") || error.message.includes("authentication"))) {
         return NextResponse.json({ error: "AI Provider API key is missing, invalid, or not authorized. Please check server configuration and OpenRouter account status.", details: error.message }, { status: 500 });
     }
-    if (error instanceof SyntaxError && errorMessage.includes("JSON.parse")) {
-        return NextResponse.json({ error: "Failed to parse AI response. The AI might have returned an invalid JSON.", details: errorMessage }, { status: 500 });
+    // Error parsing JSON sekarang seharusnya lebih jarang terjadi, tapi tetap ditangani
+    if (error instanceof SyntaxError) { 
+        console.error(`[API_ANALYZE_PCAP] JSON Parsing Error after cleaning. Original text was:`, rawAnalysisText, `Cleaned text was:`, cleanedJsonText);
+        return NextResponse.json({ error: "Failed to parse AI response even after cleaning. The AI might have returned an invalid JSON structure.", details: errorMessage }, { status: 500 });
     }
 
     return NextResponse.json({ error: errorMessage, details: error instanceof Error ? error.stack : "No stack available" }, { status: 500 });
