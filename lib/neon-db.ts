@@ -544,32 +544,37 @@ export const pcapFileDb = {
       const values = []
       let paramIndex = 1
 
-      // --- ADDED DEBUG LOG HERE ---
-      console.log("DEBUG: pcapFileDb.findFirst received 'where' object:", where);
-      // --- END ADDED DEBUG LOG ---
+      console.log("DEBUG: pcapFileDb.findFirst received raw 'where' object:", where);
 
-      // Explicitly convert to string to ensure consistent type evaluation
-      const analysisIdStr = String(where.analysisId);
-      const userIdStr = String(where.userId);
+      // Extract values from the 'where' object to local variables
+      // Ensure they are truly defined and not just properties on 'where' that are undefined.
+      const receivedAnalysisId = where.analysisId;
+      const receivedUserId = where.userId;
+
+      // Use a robust check for non-empty string, ensuring it's not 'undefined' or 'null' string literals
+      const analysisIdToUse = (typeof receivedAnalysisId === 'string' && receivedAnalysisId.length > 0 && receivedAnalysisId !== 'undefined' && receivedAnalysisId !== 'null') ? receivedAnalysisId : null;
+      const userIdToUse = (typeof receivedUserId === 'string' && receivedUserId.length > 0 && receivedUserId !== 'undefined' && receivedUserId !== 'null') ? receivedUserId : null;
 
       // Ensure analysisId is a non-empty string before adding to conditions
-      if (analysisIdStr.length > 0) {
+      if (analysisIdToUse) {
         conditions.push(`analysis_id = $${paramIndex++}`)
-        values.push(analysisIdStr)
+        values.push(analysisIdToUse)
+        console.log(`DEBUG: Adding analysisId to query: '${analysisIdToUse}'`);
       } else {
-        console.log("DEBUG: analysisIdStr is not a valid non-empty string."); // Added debug log
+        console.log("DEBUG: analysisIdToUse is null or empty, not adding to conditions.");
       }
 
       // Ensure userId is a non-empty string before adding to conditions
-      if (userIdStr.length > 0) {
+      if (userIdToUse) {
         conditions.push(`user_id = $${paramIndex++}`)
-        values.push(userIdStr)
+        values.push(userIdToUse)
+        console.log(`DEBUG: Adding userId to query: '${userIdToUse}'`);
       } else {
-        console.log("DEBUG: userIdStr is not a valid non-empty string."); // Added debug log
+        console.log("DEBUG: userIdToUse is null or empty, not adding to conditions.");
       }
 
       if (conditions.length === 0) {
-        console.log("❌ No search conditions provided for findFirst (after explicit checks).") // Modified log message
+        console.log("❌ No search conditions provided for findFirst (after final checks).")
         return null
       }
 
@@ -580,14 +585,14 @@ export const pcapFileDb = {
       console.log(`📊 Query returned ${result.rows.length} rows`)
 
       if (result.rows.length === 0) {
-        console.log(`❌ No PCAP file found with conditions:`, where)
+        console.log(`❌ No PCAP file found with conditions:`, where) // Keep original 'where' for context here
 
         // Debug: Let's see what records exist for this user
-        if (userIdStr.length > 0) { // Ensure userId is valid for this debug query
+        if (userIdToUse) {
           const debugResult = await client.query("SELECT analysis_id, user_id FROM pcap_files WHERE user_id = $1", [
-            userIdStr,
+            userIdToUse,
           ])
-          console.log(`🔍 Debug: All analysis IDs for user ${userIdStr}:`, debugResult.rows)
+          console.log(`🔍 Debug: All analysis IDs for user ${userIdToUse}:`, debugResult.rows)
         }
 
         return null
