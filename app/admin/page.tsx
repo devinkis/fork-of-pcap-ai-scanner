@@ -1,7 +1,11 @@
+// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-fb3444031e0b44895e9fddc8cf7c92cce4812117/app/admin/page.tsx
 import { getUser } from "@/lib/auth"
 import { UserManagement } from "@/components/user-management"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { redirect } from "next/navigation"
+
+// This line tells Next.js to render this page dynamically on every request
+export const dynamic = 'force-dynamic';
 
 export default async function AdminPage() {
   // Get the user without redirecting

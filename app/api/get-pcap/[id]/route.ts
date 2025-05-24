@@ -1,3 +1,4 @@
+// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-fb3444031e0b44895e9fddc8cf7c92cce4812117/app/api/get-pcap/[id]/route.ts
 import { type NextRequest, NextResponse } from "next/server"
 import { list } from "@vercel/blob"
 import db from "@/lib/neon-db"
@@ -9,14 +10,20 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     const user = await getCurrentUser()
 
     if (!user) {
+      console.log("DEBUG: GET /api/get-pcap - Authentication required, user is null."); // Added debug log
       return NextResponse.json({ error: "Authentication required" }, { status: 401 })
     }
 
-    const analysisId = params.id
+    const analysisId = params.id;
 
     if (!analysisId) {
+      console.log("DEBUG: GET /api/get-pcap - Analysis ID is missing."); // Added debug log
       return NextResponse.json({ error: "Analysis ID is required" }, { status: 400 })
     }
+
+    // --- ADDED DEBUG LOGS HERE ---
+    console.log(`DEBUG: Attempting to find PCAP file for analysisId: '${analysisId}' and userId: '${user.id}'`);
+    // --- END ADDED DEBUG LOGS ---
 
     // Check if this analysis belongs to the current user
     const pcapFile = await db.pcapFile.findFirst({
@@ -27,6 +34,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     })
 
     if (!pcapFile) {
+      console.log(`DEBUG: PCAP file not found or permission denied for analysisId: '${analysisId}' and userId: '${user.id}'`); // Added debug log
       return NextResponse.json(
         {
           success: false,
