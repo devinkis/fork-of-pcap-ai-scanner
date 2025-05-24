@@ -489,7 +489,6 @@ export const pcapFileDb = {
         console.log(`🔍 Finding PCAP file by ID: ${where.id}`)
         const result = await client.query("SELECT * FROM pcap_files WHERE id = $1", [where.id])
         if (result.rows.length === 0) {
-          console.log(`❌ No PCAP file found with ID: ${where.id}`)
           return null
         }
         const file = result.rows[0]
@@ -509,7 +508,6 @@ export const pcapFileDb = {
         console.log(`🔍 Finding PCAP file by analysis ID: ${where.analysisId}`)
         const result = await client.query("SELECT * FROM pcap_files WHERE analysis_id = $1", [where.analysisId])
         if (result.rows.length === 0) {
-          console.log(`❌ No PCAP file found with analysis ID: ${where.analysisId}`)
           return null
         }
         const file = result.rows[0]
@@ -546,12 +544,16 @@ export const pcapFileDb = {
 
       console.log("DEBUG: pcapFileDb.findFirst received raw 'where' object:", where);
 
-      const receivedAnalysisId = where.analysisId;
-      const receivedUserId = where.userId;
+      // --- IMAGINATIVE WORKAROUND START ---
+      // This is an aggressive attempt to force the environment to correctly interpret the strings.
+      // We will explicitly create new string primitives from the received values.
+      const imaginativeAnalysisId = (where && typeof where.analysisId === 'string') ? '' + where.analysisId : null;
+      const imaginativeUserId = (where && typeof where.userId === 'string') ? '' + where.userId : null;
 
-      // Use a robust check for non-empty string, ensuring it's not 'undefined' or 'null' string literals
-      const analysisIdToUse = (typeof receivedAnalysisId === 'string' && receivedAnalysisId.length > 0 && receivedAnalysisId !== 'undefined' && receivedAnalysisId !== 'null') ? receivedAnalysisId : null;
-      const userIdToUse = (typeof receivedUserId === 'string' && receivedUserId.length > 0 && receivedUserId !== 'undefined' && receivedUserId !== 'null') ? receivedUserId : null;
+      // Use a robust check for non-empty string on these new imaginative variables
+      const analysisIdToUse = (imaginativeAnalysisId && imaginativeAnalysisId.length > 0) ? imaginativeAnalysisId : null;
+      const userIdToUse = (imaginativeUserId && imaginativeUserId.length > 0) ? imaginativeUserId : null;
+      // --- IMAGINATIVE WORKAROUND END ---
 
       // Ensure analysisId is a non-empty string before adding to conditions
       if (analysisIdToUse) {
@@ -580,7 +582,7 @@ export const pcapFileDb = {
       console.log(`🔍 Executing findFirst query: ${query} with values:`, values)
 
       const result = await client.query(query, values)
-      console.log(`📊 Query returned 0 rows`); // This line is missing in the user's provided logs.
+      console.log(`📊 Query returned ${result.rows.length} rows`)
 
       if (result.rows.length === 0) {
         console.log(`❌ No PCAP file found with conditions:`, where) // Keep original 'where' for context here
