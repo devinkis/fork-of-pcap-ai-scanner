@@ -1,3 +1,4 @@
+// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-fb3444031e0b44895e9fddc8cf7c92cce4812117/lib/neon-db.ts
 import { createClient } from "@vercel/postgres"
 import { v4 as uuidv4 } from "uuid"
 
@@ -343,7 +344,7 @@ export const userDb = {
     await client.connect()
 
     try {
-      const { where, data, select } = options
+      const { where, data } = options
       const now = new Date()
 
       const updates = []
@@ -534,12 +535,14 @@ export const pcapFileDb = {
       const values = []
       let paramIndex = 1
 
-      if (where.analysisId) {
+      // Ensure analysisId is a non-empty string before adding to conditions
+      if (typeof where.analysisId === 'string' && where.analysisId.length > 0) {
         conditions.push(`analysis_id = $${paramIndex++}`)
         values.push(where.analysisId)
       }
 
-      if (where.userId) {
+      // Ensure userId is a non-empty string before adding to conditions
+      if (typeof where.userId === 'string' && where.userId.length > 0) {
         conditions.push(`user_id = $${paramIndex++}`)
         values.push(where.userId)
       }
