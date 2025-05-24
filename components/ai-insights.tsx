@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"; //
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; //
-import { Badge } from "@/components/ui/badge"; //
-import { Progress } from "@/components/ui/progress"; //
-import { Button } from "@/components/ui/button"; //
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; //
-import { Loader2, AlertTriangle, Shield, Activity, Network, FileWarning, RefreshCw, Zap, Search, ExternalLink } from "lucide-react";
-import { IOCList } from "@/components/ioc-list"; //
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, AlertTriangle, Shield, Activity, Network, FileWarning, RefreshCw, Zap, Search, ExternalLink, EyeOff } from "lucide-react"; // Tambahkan EyeOff
+import { IOCList } from "@/components/ioc-list";
 
 interface AIInsightsProps {
   analysisId: string;
@@ -24,7 +24,7 @@ interface Insight {
   category: "malware" | "anomaly" | "exfiltration" | "vulnerability" | "reconnaissance" | "policy-violation" | "benign-but-noteworthy";
   affectedHosts?: string[];
   detailedAnalysis?: string;
-  relatedPackets?: number[]; // Bisa merujuk ke indeks samplePackets
+  relatedPackets?: number[];
   timeline?: {
     time: string;
     event: string;
@@ -36,22 +36,27 @@ interface Insight {
   }[];
 }
 
+// --- PERBAIKAN INTERFACE AIAnalysis ---
 interface AIAnalysis {
   summary: string;
   threatLevel: "low" | "medium" | "high" | "critical";
   findings: Insight[];
   statistics: {
-    totalPackets: number;
-    analyzedPackets?: number; // Bisa jadi sama dengan totalPackets
-    protocols: {
-      [key: string]: number;
-    };
-    topTalkers?: { // Dibuat opsional jika tidak selalu ada
-      ip: string;
-      packets: number;
-      bytes: number;
+    totalPacketsInFile: number;         // Sesuai dengan output AI
+    packetsProcessedForStats?: number;  // Sesuai dengan output AI, buat opsional jika AI bisa tidak mengirimkannya
+    // analyzedPackets?: number;        // Hapus atau sesuaikan jika ini field lama yang tidak terpakai
+    protocols: { [key: string]: number; };
+    topTalkers?: { 
+        ip: string; 
+        packets: number; 
+        bytes: number;
+        // Tambahkan field ini jika ada di data parsing Anda dan dikirim ke AI & kembali dari AI
+        sentPackets?: number;
+        receivedPackets?: number;
+        sentBytes?: number;
+        receivedBytes?: number;
     }[];
-    anomalyScore?: number; // Dibuat opsional
+    anomalyScore?: number;
   };
   timeline?: {
     time: string;
@@ -70,11 +75,12 @@ interface AIAnalysis {
     confidence: number;
   }[];
 }
+// --- AKHIR PERBAIKAN INTERFACE ---
 
 export function AIInsights({ analysisId }: AIInsightsProps) {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
-  const [analyzing, setAnalyzing] = useState(true); // Tetap true sampai analisis selesai atau gagal
+  const [analyzing, setAnalyzing] = useState(true);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
@@ -86,22 +92,20 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
       setAnalyzing(false);
       return;
     }
-
     console.log(`[AI_INSIGHTS_COMPONENT] Initiating analysis for ID: ${analysisId}`);
     setLoading(true);
     setAnalyzing(true);
     setProgress(0);
     setError(null);
-    setAnalysis(null); // Reset analisis sebelumnya agar UI loading muncul
+    setAnalysis(null); 
     setSelectedInsight(null);
 
     let progressInterval: NodeJS.Timeout | null = null;
 
     try {
-      // Progress bar yang lebih realistis untuk proses yang mungkin lama
       let currentProgress = 0;
-      const totalSteps = 100; // Anggap ada 100 langkah
-      const timePerStep = 200; // 200ms per langkah, total 20 detik untuk 95%
+      const totalSteps = 100; 
+      const timePerStep = 200; 
 
       progressInterval = setInterval(() => {
         currentProgress++;
@@ -110,14 +114,12 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
         if (newProgress >= 95) {
           if (progressInterval) clearInterval(progressInterval);
         }
-      }, timePerStep / (totalSteps/100)); // sesuaikan interval
+      }, timePerStep / (totalSteps/100)); 
 
       console.log(`[AI_INSIGHTS_COMPONENT] Requesting AI analysis from API for analysisId: ${analysisId}`);
       const response = await fetch("/api/analyze-pcap", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json", },
         body: JSON.stringify({ analysisId }),
       });
 
@@ -149,8 +151,8 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
       setError(err instanceof Error ? err.message : "An unknown error occurred during analysis.");
       setProgress(0);
     } finally {
-      setAnalyzing(false); // Selesai menganalisis (baik sukses maupun gagal)
-      setLoading(false); // Selesai memuat komponen (bukan berarti analisis selesai)
+      setAnalyzing(false);
+      setLoading(false);
     }
   };
 
@@ -195,10 +197,10 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
 
   const getTimelineSeverityColor = (severity: string) => {
     switch (severity) {
-      case "info": return "bg-blue-100 border-blue-200";
-      case "warning": return "bg-yellow-100 border-yellow-200";
-      case "error": return "bg-red-100 border-red-200";
-      default: return "bg-gray-100 border-gray-200";
+      case "info": return "bg-blue-100 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700";
+      case "warning": return "bg-yellow-100 border-yellow-200 dark:bg-yellow-800/30 dark:border-yellow-700";
+      case "error": return "bg-red-100 border-red-200 dark:bg-red-900/30 dark:border-red-700";
+      default: return "bg-gray-100 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600";
     }
   };
 
@@ -215,7 +217,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     setSelectedInsight(selectedInsight?.id === insight.id ? null : insight);
   };
 
-  if (loading && analyzing) { // Kondisi awal saat komponen dimuat dan analisis dimulai
+  if (loading && analyzing) {
     return (
       <Card>
         <CardHeader className="pb-2">
@@ -261,7 +263,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     );
   }
 
-  if (!analysis && !analyzing && !loading) { // Jika analisis selesai tapi tidak ada data (atau gagal tanpa error state spesifik)
+  if (!analysis && !analyzing && !loading) { 
     return (
       <Card>
         <CardHeader>
@@ -279,11 +281,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     );
   }
   
-  // Hanya tampilkan konten utama jika `analysis` ada dan tidak sedang `analyzing`
-  // `loading` bisa jadi false lebih dulu sebelum `analyzing` selesai
   if (!analysis) {
-      // Ini seharusnya ditangani oleh kondisi loading atau error di atas,
-      // tapi sebagai fallback jika `analysis` null setelah semua state loading/analyzing selesai.
       return (
           <Card>
               <CardHeader>
@@ -298,7 +296,6 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
       );
   }
 
-
   // ----- Tampilan utama setelah data analisis diterima -----
   return (
     <div className="space-y-6">
@@ -312,7 +309,8 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                 </Badge>
               </div>
               <CardDescription>
-                Analysis of {(analysis.statistics.analyzedPackets || analysis.statistics.totalPackets).toLocaleString()} packets
+                {/* --- PERBAIKAN AKSES FIELD --- */}
+                Analysis of {(analysis.statistics.packetsProcessedForStats ?? analysis.statistics.totalPacketsInFile ?? 0).toLocaleString()} packets
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -349,18 +347,19 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                   </div>
                 )}
 
-                {analysis.statistics.topTalkers && analysis.statistics.topTalkers.length > 0 && (
+                {analysis.statistics.topTalkers && analysis.statistics.topTalkers.length > 0 && analysis.statistics.topTalkers[0] && (
                     <div className="bg-white/70 dark:bg-black/30 p-3 rounded-lg border">
                         <div className="flex items-center text-sm font-medium">
                         <Network className="h-4 w-4 mr-2 text-blue-500" />
                         Top Talker
                         </div>
-                        <div className="text-xl font-bold mt-1 truncate" title={analysis.statistics.topTalkers[0]?.ip || "Unknown"}>
-                            {analysis.statistics.topTalkers[0]?.ip || "Unknown"}
+                        <div className="text-xl font-bold mt-1 truncate" title={analysis.statistics.topTalkers[0].ip || "Unknown"}>
+                            {analysis.statistics.topTalkers[0].ip || "Unknown"}
                         </div>
                         <div className="text-xs text-muted-foreground mt-1">
-                        {analysis.statistics.topTalkers[0]?.packets.toLocaleString()} packets (
-                        {(analysis.statistics.topTalkers[0]?.bytes / 1024 / 1024).toFixed(2)} MB)
+                           {/* Pastikan packets dan bytes ada sebelum memanggil toLocaleString/toFixed */}
+                           {analysis.statistics.topTalkers[0].packets?.toLocaleString() || '0'} packets (
+                           {((analysis.statistics.topTalkers[0].bytes || 0) / 1024 / 1024).toFixed(2)} MB)
                         </div>
                     </div>
                 )}
@@ -643,8 +642,10 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                         <h4 className="text-sm font-medium mb-2">Protocol Distribution</h4>
                         <div className="space-y-2">
                             {Object.entries(analysis.statistics.protocols).map(([protocol, count]) => {
-                            if (count === 0) return null; // Jangan tampilkan jika count 0
-                            const percentage = Math.round((count / (analysis.statistics.analyzedPackets || analysis.statistics.totalPackets)) * 100);
+                            if (count === 0 && protocol !== 'UNKNOWN_L3') return null; // Jangan tampilkan jika count 0, kecuali UNKNOWN_L3 jika perlu
+                            // --- PERBAIKAN DENOMINATOR PERSENTASE ---
+                            const denominator = analysis.statistics.packetsProcessedForStats ?? analysis.statistics.totalPacketsInFile ?? 1; // Hindari pembagian dengan 0
+                            const percentage = Math.round((count / (denominator === 0 ? 1 : denominator)) * 100);
                             return (
                                 <div key={protocol} className="space-y-1">
                                 <div className="flex justify-between text-sm">
@@ -660,7 +661,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                         </div>
                         </div>
 
-                        {analysis.statistics.topTalkers && analysis.statistics.topTalkers.length > 0 && (
+                        {analysis.statistics.topTalkers && analysis.statistics.topTalkers.length > 0 && analysis.statistics.topTalkers[0] && (
                         <div>
                             <h4 className="text-sm font-medium mb-2">Top Talkers</h4>
                             <div className="space-y-2">
@@ -675,11 +676,11 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                                     <div>
                                     <div className="text-sm font-medium truncate" title={talker.ip}>{talker.ip}</div>
                                     <div className="text-xs text-muted-foreground">
-                                        {talker.packets.toLocaleString()} packets
+                                        {(talker.packets || 0).toLocaleString()} packets
                                     </div>
                                     </div>
                                 </div>
-                                <div className="text-sm whitespace-nowrap">{(talker.bytes / 1024 / 1024).toFixed(2)} MB</div>
+                                <div className="text-sm whitespace-nowrap">{((talker.bytes || 0) / 1024 / 1024).toFixed(2)} MB</div>
                                 </div>
                             ))}
                             </div>
