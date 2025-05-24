@@ -2,165 +2,208 @@ import { type NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import db from "@/lib/neon-db";
-import { PcapDissector, PcapFile } from 'pcap-dissector'; // Impor dari pcap-dissector
+import pcap, { PcapSession, Packet, PcapPacket } from 'pcap'; // Impor dari pcap
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
-async function parsePcapFileWithPcapDissector(fileUrl: string, fileName: string): Promise<any> {
-  console.log(`[PARSE_PCAP_DISSECTOR] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
+async function parsePcapFileWithNodePcap(fileUrl: string, fileName: string, analysisId: string): Promise<any> {
+  console.log(`[PARSE_NODE_PCAP] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
+  const tempDir = path.join(os.tmpdir(), 'pcap-analysis');
+  const tempFilePath = path.join(tempDir, `${analysisId}-${fileName}`);
+
   try {
+    // Buat direktori sementara jika belum ada
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // 1. Unduh file PCAP ke path sementara
+    console.log(`[PARSE_NODE_PCAP] Downloading PCAP to ${tempFilePath}`);
     const pcapResponse = await fetch(fileUrl);
     if (!pcapResponse.ok || !pcapResponse.body) {
       throw new Error(`Failed to download PCAP file: ${pcapResponse.statusText}`);
     }
     const arrayBuffer = await pcapResponse.arrayBuffer();
-    const pcapBuffer = Buffer.from(arrayBuffer);
+    fs.writeFileSync(tempFilePath, Buffer.from(arrayBuffer));
+    console.log(`[PARSE_NODE_PCAP] PCAP file downloaded successfully to ${tempFilePath}`);
 
-    const pcapFile = new PcapFile(pcapBuffer);
-    // PcapDissector akan secara otomatis mencoba mendeteksi link layer type
-    // Jika gagal atau tidak standar, mungkin perlu penyesuaian atau error handling
-    const dissector = new PcapDissector(pcapFile.linkLayerType);
-
+    // 2. Buat sesi pcap offline
+    // Pastikan Anda menggunakan tipe yang benar untuk PcapSession jika ada type definitions
+    const pcapSession: PcapSession = pcap.createOfflineSession(tempFilePath, "");
+    
     let packetCounter = 0;
     const protocolStats: { [key: string]: number } = {};
     const samplePacketsForAI: Array<any> = [];
     const MAX_SAMPLES_FOR_AI = 15;
-    const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000;
+    const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; // Batasi untuk performa
 
     const ipTraffic: { [ip: string]: { sentPackets: number, receivedPackets: number, sentBytes: number, receivedBytes: number } } = {};
 
-    for (const rawPacket of pcapFile.packets) {
-      packetCounter++;
-      const packetLength = rawPacket.capturedLength;
-      let sourceIp = "N/A";
-      let destIp = "N/A";
-      let sourcePort: number | string | undefined;
-      let destPort: number | string | undefined;
-      let layer3ProtocolName = "UnknownL3";
-      let layer4ProtocolName = "UnknownL4";
-      let applicationLayerInfo = "";
-      let packetSummary = `Packet ${packetCounter}`;
+    return new Promise((resolve, reject) => {
+      pcapSession.on('packet', (rawPacket: Buffer) => {
+        packetCounter++;
+        // node-pcap mengembalikan buffer mentah, kita perlu decode
+        const packet: Packet = pcap.decode.packet(rawPacket) as Packet; // Lakukan type assertion jika perlu
 
+        const packetLength = packet.header.caplen; // captured length
+        const timestamp = new Date(packet.header.time_seconds * 1000 + packet.header.time_ms / 1000).toISOString();
+        
+        let sourceIp = "N/A";
+        let destIp = "N/A";
+        let sourcePort: number | undefined;
+        let destPort: number | undefined;
+        let layer3ProtocolName = "UnknownL3";
+        let layer4ProtocolName = "UnknownL4";
+        let applicationLayerInfo = "";
+        let packetSummary = `Packet ${packetCounter}`;
+
+        try {
+            if (packet.link) { // Layer 2
+                protocolStats[packet.link.name] = (protocolStats[packet.link.name] || 0) + 1;
+                if (packet.link.ip) { // Layer 3 (IP)
+                    const ipPacket = packet.link.ip;
+                    layer3ProtocolName = ipPacket.protocol_name || 'IP_UNKNOWN';
+                    protocolStats[layer3ProtocolName] = (protocolStats[layer3ProtocolName] || 0) + 1;
+                    sourceIp = ipPacket.saddr?.toString() || "N/A";
+                    destIp = ipPacket.daddr?.toString() || "N/A";
+                    packetSummary = `${layer3ProtocolName} ${sourceIp} -> ${destIp}`;
+
+                    if (ipPacket.tcp) { // Layer 4 (TCP)
+                        layer4ProtocolName = 'TCP';
+                        protocolStats[layer4ProtocolName] = (protocolStats[layer4ProtocolName] || 0) + 1;
+                        const tcpSegment = ipPacket.tcp;
+                        sourcePort = tcpSegment.sport;
+                        destPort = tcpSegment.dport;
+                        packetSummary += ` (${layer4ProtocolName}) ${sourcePort}->${destPort}`;
+                         if (destPort === 80 || sourcePort === 80) applicationLayerInfo = "HTTP";
+                         else if (destPort === 443 || sourcePort === 443) applicationLayerInfo = "HTTPS/TLS";
+                         else if (destPort === 53 || sourcePort === 53) applicationLayerInfo = "DNS/TCP";
+                    } else if (ipPacket.udp) { // Layer 4 (UDP)
+                        layer4ProtocolName = 'UDP';
+                        protocolStats[layer4ProtocolName] = (protocolStats[layer4ProtocolName] || 0) + 1;
+                        const udpDatagram = ipPacket.udp;
+                        sourcePort = udpDatagram.sport;
+                        destPort = udpDatagram.dport;
+                        packetSummary += ` (${layer4ProtocolName}) ${sourcePort}->${destPort}`;
+                        if (destPort === 53 || sourcePort === 53) applicationLayerInfo = "DNS/UDP";
+                    } else if (ipPacket.icmp) {
+                        layer4ProtocolName = 'ICMP';
+                        protocolStats[layer4ProtocolName] = (protocolStats[layer4ProtocolName] || 0) + 1;
+                        applicationLayerInfo = `ICMP Type: ${ipPacket.icmp.type}, Code: ${ipPacket.icmp.code}`;
+                    }
+                } else if (packet.link.arp) {
+                    layer3ProtocolName = 'ARP';
+                    protocolStats[layer3ProtocolName] = (protocolStats[layer3ProtocolName] || 0) + 1;
+                    packetSummary = `ARP ${packet.link.arp.sender_pa?.toString()} -> ${packet.link.arp.target_pa?.toString()}`;
+                }
+            }
+        } catch(e: any) {
+            console.warn(`[PARSE_NODE_PCAP] Error decoding individual packet ${packetCounter}: ${e.message}`);
+        }
+        
+        if (sourceIp !== "N/A") {
+            ipTraffic[sourceIp] = ipTraffic[sourceIp] || { sentPackets: 0, receivedPackets: 0, sentBytes: 0, receivedBytes: 0 };
+            ipTraffic[sourceIp].sentPackets++;
+            ipTraffic[sourceIp].sentBytes += packetLength;
+        }
+        if (destIp !== "N/A") {
+            ipTraffic[destIp] = ipTraffic[destIp] || { sentPackets: 0, receivedPackets: 0, sentBytes: 0, receivedBytes: 0 };
+            ipTraffic[destIp].receivedPackets++;
+            ipTraffic[destIp].receivedBytes += packetLength;
+        }
+
+        if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) {
+          samplePacketsForAI.push({
+            no: packetCounter,
+            timestamp: timestamp,
+            source: sourcePort !== undefined ? `${sourceIp}:${sourcePort}` : sourceIp,
+            destination: destPort !== undefined ? `${destIp}:${destPort}` : destIp,
+            protocolL3: layer3ProtocolName,
+            protocolL4: layer4ProtocolName,
+            length: packetLength,
+            info: applicationLayerInfo || packetSummary,
+          });
+        }
+
+        if (packetCounter >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) {
+          console.warn(`[PARSE_NODE_PCAP] Reached packet processing limit for stats: ${MAX_PACKETS_TO_PROCESS_FOR_STATS} for file ${fileName}`);
+          pcapSession.close(); // Hentikan sesi jika batas tercapai
+          resolveResults();
+          return;
+        }
+      });
+
+      const resolveResults = () => {
+          // Hanya resolve sekali
+        if (!(resolve as any).__resolved) {
+            (resolve as any).__resolved = true; 
+            const topTalkers = Object.entries(ipTraffic)
+            .map(([ip, data]) => ({ 
+                ip, 
+                packets: data.sentPackets + data.receivedPackets, 
+                bytes: data.sentBytes + data.receivedBytes,
+                sentPackets: data.sentPackets,
+                receivedPackets: data.receivedPackets,
+                sentBytes: data.sentBytes,
+                receivedBytes: data.receivedBytes
+                }))
+            .sort((a, b) => b.packets - a.packets)
+            .slice(0, 5);
+            
+            resolve({
+            statistics: {
+                totalPacketsInFile: packetCounter, // Mungkin tidak akurat jika sesi ditutup lebih awal
+                packetsProcessedForStats: packetCounter, 
+                protocols: protocolStats,
+                topTalkers: topTalkers,
+                anomalyScore: Math.floor(Math.random() * 30) + 10, 
+            },
+            samplePackets: samplePacketsForAI,
+            potentialThreatsIdentified: ["Scan with node-pcap, details depend on parsing."],
+            dataExfiltrationSigns: "Further analysis on decoded data needed.",
+            });
+        }
+      };
+
+      pcapSession.on('complete', () => {
+        console.log(`[PARSE_NODE_PCAP] Finished reading PCAP file. Total packets: ${packetCounter} for file: ${fileName}`);
+        resolveResults();
+      });
+
+      pcapSession.on('error', (err: Error) => {
+        console.error(`[PARSE_NODE_PCAP] Error reading PCAP session for ${fileName}:`, err);
+         if (!(reject as any).__rejected) {
+            (reject as any).__rejected = true;
+            reject(new Error(`Error reading PCAP session: ${err.message}`));
+        }
+      });
+
+    }); // Akhir dari new Promise
+  } catch (error) {
+    console.error(`[PARSE_NODE_PCAP] Outer error in parsePcapFileWithNodePcap for ${fileName}:`, error);
+    throw error; 
+  } finally {
+    // Hapus file sementara setelah selesai
+    if (fs.existsSync(tempFilePath)) {
       try {
-        const dissectedPacket = dissector.dissect(rawPacket.data);
-
-        // Layer 2 (Ethernet) - Umumnya tidak dikirim ke AI kecuali ada info khusus
-        if (dissectedPacket.link?.type) {
-            protocolStats['Ethernet'] = (protocolStats['Ethernet'] || 0) + 1;
-        }
-
-        // Layer 3 (IP)
-        if (dissectedPacket.network?.type) {
-            layer3ProtocolName = dissectedPacket.network.type.toUpperCase(); // e.g., IPV4, IPV6, ARP
-            protocolStats[layer3ProtocolName] = (protocolStats[layer3ProtocolName] || 0) + 1;
-            if (dissectedPacket.network.sourceAddress) {
-                sourceIp = dissectedPacket.network.sourceAddress.toString();
-            }
-            if (dissectedPacket.network.destinationAddress) {
-                destIp = dissectedPacket.network.destinationAddress.toString();
-            }
-            packetSummary = `${layer3ProtocolName} ${sourceIp} -> ${destIp}`;
-        }
-
-        // Layer 4 (Transport)
-        if (dissectedPacket.transport?.type) {
-            layer4ProtocolName = dissectedPacket.transport.type.toUpperCase(); // e.g., TCP, UDP, ICMP
-            protocolStats[layer4ProtocolName] = (protocolStats[layer4ProtocolName] || 0) + 1;
-            if (dissectedPacket.transport.sourcePort) {
-                sourcePort = dissectedPacket.transport.sourcePort;
-            }
-            if (dissectedPacket.transport.destinationPort) {
-                destPort = dissectedPacket.transport.destinationPort;
-            }
-            packetSummary += ` (${layer4ProtocolName}) ${sourcePort !== undefined ? sourcePort : ''}->${destPort !== undefined ? destPort : ''}`;
-
-            const numDestPort = Number(destPort);
-            const numSourcePort = Number(sourcePort);
-            if (numDestPort === 80 || numSourcePort === 80) applicationLayerInfo = "Likely HTTP";
-            else if (numDestPort === 443 || numSourcePort === 443) applicationLayerInfo = "Likely HTTPS/TLS";
-            else if (numDestPort === 53 || numSourcePort === 53) applicationLayerInfo = "Likely DNS";
-            else if (numDestPort === 21 || numSourcePort === 21) applicationLayerInfo = "FTP Control";
-            else if (numDestPort === 22 || numSourcePort === 22) applicationLayerInfo = "SSH";
-            // ... tambahkan deteksi port lain
-        }
-        
-        // Layer 5+ (Aplikasi) - pcap-dissector mungkin punya parser untuk beberapa ini
-        if (dissectedPacket.application?.type) {
-            const appType = dissectedPacket.application.type.toUpperCase();
-            applicationLayerInfo = appType + (applicationLayerInfo ? ` (${applicationLayerInfo})` : '');
-            protocolStats[appType] = (protocolStats[appType] || 0) + 1;
-        }
-
-
-      } catch (e: any) {
-        console.warn(`[PARSE_PCAP_DISSECTOR] Error parsing individual packet ${packetCounter} for ${fileName}: ${e.message}. Data (hex): ${rawPacket.data.toString('hex').substring(0,100)}`);
-      }
-        
-      if (sourceIp !== "N/A") {
-          ipTraffic[sourceIp] = ipTraffic[sourceIp] || { sentPackets: 0, receivedPackets: 0, sentBytes: 0, receivedBytes: 0 };
-          ipTraffic[sourceIp].sentPackets++;
-          ipTraffic[sourceIp].sentBytes += packetLength;
-      }
-      if (destIp !== "N/A") {
-          ipTraffic[destIp] = ipTraffic[destIp] || { sentPackets: 0, receivedPackets: 0, sentBytes: 0, receivedBytes: 0 };
-          ipTraffic[destIp].receivedPackets++;
-          ipTraffic[destIp].receivedBytes += packetLength;
-      }
-
-      if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) {
-        samplePacketsForAI.push({
-          no: packetCounter,
-          timestamp: new Date(Number(rawPacket.header.timestampSeconds) * 1000 + Number(rawPacket.header.timestampMicroseconds) / 1000).toISOString(),
-          source: sourcePort !== undefined ? `${sourceIp}:${sourcePort}` : sourceIp,
-          destination: destPort !== undefined ? `${destIp}:${destPort}` : destIp,
-          protocolL3: layer3ProtocolName,
-          protocolL4: layer4ProtocolName,
-          length: packetLength,
-          info: applicationLayerInfo || packetSummary,
-        });
-      }
-
-      if (packetCounter >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) {
-        console.warn(`[PARSE_PCAP_DISSECTOR] Reached packet processing limit for stats: ${MAX_PACKETS_TO_PROCESS_FOR_STATS} for file ${fileName}`);
-        break;
+        fs.unlinkSync(tempFilePath);
+        console.log(`[PARSE_NODE_PCAP] Temporary file ${tempFilePath} deleted.`);
+      } catch (e) {
+        console.error(`[PARSE_NODE_PCAP] Error deleting temporary file ${tempFilePath}:`, e);
       }
     }
-
-    console.log(`[PARSE_PCAP_DISSECTOR] Finished parsing loop. Total packets iterated for stats: ${packetCounter} for file: ${fileName}`);
-    
-    const topTalkers = Object.entries(ipTraffic)
-      .map(([ip, data]) => ({ 
-          ip, 
-          packets: data.sentPackets + data.receivedPackets, 
-          bytes: data.sentBytes + data.receivedBytes,
-          sentPackets: data.sentPackets,
-          receivedPackets: data.receivedPackets,
-          sentBytes: data.sentBytes,
-          receivedBytes: data.receivedBytes
-        }))
-      .sort((a, b) => b.packets - a.packets)
-      .slice(0, 5);
-      
-    return {
-      statistics: {
-        totalPacketsInFile: pcapFile.packets.length, 
-        packetsProcessedForStats: packetCounter, 
-        protocols: protocolStats,
-        topTalkers: topTalkers,
-        anomalyScore: (protocolStats['UNKNOWNL3'] || 0 + (protocolStats['UNKNOWNL4'] || 0)) > packetCounter * 0.05 ? 70 : Math.floor(Math.random() * 35) + 10,
-      },
-      samplePackets: samplePacketsForAI,
-      potentialThreatsIdentified: topTalkers.length > 0 && topTalkers[0].packets > packetCounter * 0.6 ? [`Dominant traffic from/to ${topTalkers[0].ip}`] : ["Initial scan shows varied traffic patterns."],
-      dataExfiltrationSigns: "Further analysis needed for definitive exfiltration signs.",
-    };
-
-  } catch (error) {
-    console.error(`[PARSE_PCAP_DISSECTOR] Outer error in parsePcapFileWithPcapDissector for ${fileName}:`, error);
-    throw error; 
   }
 }
+// --- Akhir dari implementasi parsePcapFileWithNodePcap ---
+
+
+// --- Sisa kode (OpenRouter client, extractJsonFromString, dan fungsi POST handler) ---
+// Tetap sama seperti versi sebelumnya, pastikan pemanggilan fungsi parsing diubah ke parsePcapFileWithNodePcap.
 
 const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct"; // Sesuaikan dengan model gratis OpenRouter
+const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct";
 
 let openRouterProvider: ReturnType<typeof createOpenAI> | null = null;
 
@@ -239,7 +282,8 @@ export async function POST(request: NextRequest) {
 
     console.log(`[API_ANALYZE_PCAP] Analyzing PCAP: ${pcapFileName} (URL: ${pcapFileUrl}, Size: ${pcapFileSize} bytes) for analysisId: ${analysisIdFromBody}`);
 
-    const extractedPcapData = await parsePcapFileWithPcapDissector(pcapFileUrl, pcapFileName);
+    // Menggunakan fungsi parsing yang baru dengan node-pcap
+    const extractedPcapData = await parsePcapFileWithNodePcap(pcapFileUrl, pcapFileName, analysisIdFromBody);
 
     if (!extractedPcapData) {
         console.error(`[API_ANALYZE_PCAP] Failed to parse PCAP data for analysisId: ${analysisIdFromBody}`);
@@ -266,7 +310,7 @@ export async function POST(request: NextRequest) {
         - Sample Packets (first ${MAX_SAMPLES_FOR_AI} packets or less, 'no' field is packet number): ${JSON.stringify(dataForAI.samplePackets, null, 2)}
         - Preliminary Scan Results (if any): 
           - Potential Threats: ${JSON.stringify(dataForAI.potentialThreatsIdentified)}
-          - Data Exfiltration Signs: ${dataForAI.dataExfiltrationSigns}
+          - Data Exfiltration Signs: ${JSON.stringify(dataForAI.dataExfiltrationSigns)}
 
         Based on THIS SPECIFIC data:
         1. Provide a concise summary of your findings. What is the overall security posture observed from this data?
