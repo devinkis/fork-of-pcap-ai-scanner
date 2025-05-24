@@ -1,7 +1,11 @@
+// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-fb3444031e0b44895e9fddc8cf7c92cce4812117/app/api/upload-pcap/route.ts
 import { type NextRequest, NextResponse } from "next/server"
 import { v4 as uuidv4 } from "uuid"
 import { put } from "@vercel/blob"
-import db from "@/lib/neon-db"
+// --- FIX START ---
+// Import specific functions/objects needed from neon-db directly
+import { pcapFileDb, testConnection as dbTestConnection } from "@/lib/neon-db";
+// --- FIX END ---
 import { getCurrentUser } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
@@ -41,7 +45,9 @@ export async function POST(request: NextRequest) {
     // First, let's test the database connection
     try {
       console.log("Testing database connection before upload...")
-      await db.testConnection()
+      // --- FIX START ---
+      await dbTestConnection(); // Use the directly imported function
+      // --- FIX END ---
       console.log("Database connection test successful")
     } catch (dbTestError) {
       console.error("Database connection test failed:", dbTestError)
@@ -52,7 +58,9 @@ export async function POST(request: NextRequest) {
     let pcapFile
     try {
       console.log(`Saving file information to database for analysis ${analysisId} with record ID ${recordId}`)
-      pcapFile = await db.pcapFile.create({
+      // --- FIX START ---
+      pcapFile = await pcapFileDb.create({ // Use the directly imported pcapFileDb
+      // --- FIX END ---
         data: {
           id: recordId,
           fileName: file.name, // Use original filename initially
@@ -102,7 +110,9 @@ export async function POST(request: NextRequest) {
 
       // Update the database record with the blob URL
       try {
-        const updatedRecord = await db.pcapFile.update({
+        // --- FIX START ---
+        const updatedRecord = await pcapFileDb.update({ // Use the directly imported pcapFileDb
+        // --- FIX END ---
           where: { id: pcapFile.id },
           data: { blobUrl: blobUrl, fileName: blob.pathname },
         })
