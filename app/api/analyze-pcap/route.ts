@@ -2,10 +2,14 @@ import { type NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import db from "@/lib/neon-db";
-import PcapParser from 'pcap-parser'; // Library pcap-parser
-import { Readable } from 'stream';    // Untuk membuat stream dari buffer
+import PcapParser from 'pcap-parser';
+import { Readable } from 'stream';
 
-// Implementasi parsePcapFile dengan pcap-parser dan Readable.from
+// --- Definisi Konstanta di Level Modul ---
+const MAX_SAMPLES_FOR_AI = 10;
+const MAX_PACKETS_TO_PROCESS_FOR_STATS = 2000;
+// --- Akhir Definisi Konstanta ---
+
 async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string): Promise<any> {
   console.log(`[PARSE_PCAP_PARSER_STREAM] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
   try {
@@ -16,15 +20,14 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
     const arrayBuffer = await pcapResponse.arrayBuffer();
     const pcapBuffer = Buffer.from(arrayBuffer);
 
-    const readablePcapStream = Readable.from(pcapBuffer); // Buat stream
-    const parser = PcapParser.parse(readablePcapStream); // Berikan stream ke parser
+    const readablePcapStream = Readable.from(pcapBuffer);
+    const parser = PcapParser.parse(readablePcapStream);
 
     let packetCounter = 0;
-    const protocolGuessStats: { [key: string]: number } = {'UNKNOWN_L3': 0}; // Inisialisasi
+    const protocolGuessStats: { [key: string]: number } = {'UNKNOWN_L3': 0};
     const samplePacketsForAI: Array<any> = [];
-    const MAX_SAMPLES_FOR_AI = 10;
-    const MAX_PACKETS_TO_PROCESS_FOR_STATS = 2000; // Batasi untuk performa awal
-    let promiseResolved = false; // Flag untuk memastikan resolve/reject hanya dipanggil sekali
+    // MAX_SAMPLES_FOR_AI dan MAX_PACKETS_TO_PROCESS_FOR_STATS sekarang diakses dari scope luar
+    let promiseResolved = false; 
 
     return new Promise((resolve, reject) => {
       const resolveOnce = (data: any) => {
@@ -41,7 +44,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
       };
 
       parser.on('packet', (packet: any) => {
-        if (promiseResolved) return; // Jangan proses jika promise sudah selesai
+        if (promiseResolved) return;
 
         packetCounter++;
         const packetLength = packet.header.capturedLength;
@@ -55,7 +58,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
         try {
             if (packet.data && packet.data.length >= 14) {
                 const etherType = packet.data.readUInt16BE(12);
-                if (etherType === 0x0800) { // IPv4
+                if (etherType === 0x0800) { 
                     guessedProtocol = "IPv4";
                     if (packet.data.length >= 14 + 20) {
                         const ipHeader = packet.data.slice(14, 14 + 20);
@@ -75,7 +78,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
         }
         protocolGuessStats[guessedProtocol] = (protocolGuessStats[guessedProtocol] || 0) + 1;
 
-        if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) {
+        if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) { // Menggunakan konstanta dari scope luar
           samplePacketsForAI.push({
             no: packetCounter,
             timestamp: timestamp,
@@ -87,7 +90,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
           });
         }
 
-        if (packetCounter >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) {
+        if (packetCounter >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) { // Menggunakan konstanta dari scope luar
           console.warn(`[PARSE_PCAP_PARSER_STREAM] Reached packet processing limit for stats: ${MAX_PACKETS_TO_PROCESS_FOR_STATS} for file ${fileName}`);
           if (parser && typeof parser.removeAllListeners === 'function') {
              parser.removeAllListeners('packet');
@@ -135,9 +138,6 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
 }
 // --- Akhir dari implementasi parsePcapFile ---
 
-
-// --- Sisa kode (OpenRouter client, extractJsonFromString, dan fungsi POST handler) ---
-// Tetap sama seperti versi sebelumnya, pastikan pemanggilan fungsi parsing adalah parsePcapFileWithReadableStream.
 
 const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
@@ -220,7 +220,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[API_ANALYZE_PCAP] Analyzing PCAP: ${pcapFileName} (URL: ${pcapFileUrl}, Size: ${pcapFileSize} bytes) for analysisId: ${analysisIdFromBody}`);
 
-    const extractedPcapData = await parsePcapFileWithReadableStream(pcapFileUrl, pcapFileName); // Menggunakan fungsi ini
+    const extractedPcapData = await parsePcapFileWithReadableStream(pcapFileUrl, pcapFileName);
 
     if (!extractedPcapData) {
         console.error(`[API_ANALYZE_PCAP] Failed to parse PCAP data for analysisId: ${analysisIdFromBody}`);
@@ -244,7 +244,7 @@ export async function POST(request: NextRequest) {
         
         Key Extracted PCAP Data:
         - Overall Statistics: ${JSON.stringify(dataForAI.statistics, null, 2)}
-        - Sample Packets (first ${MAX_SAMPLES_FOR_AI} packets or less, 'no' field is packet number): ${JSON.stringify(dataForAI.samplePackets, null, 2)}
+        - Sample Packets (first ${MAX_SAMPLES_FOR_AI} packets or less, 'no' field is packet number): ${JSON.stringify(dataForAI.samplePackets, null, 2)} 
         - Preliminary Scan Results (if any): 
           - Potential Threats: ${JSON.stringify(dataForAI.potentialThreatsIdentified)}
           - Data Exfiltration Signs: ${JSON.stringify(dataForAI.dataExfiltrationSigns)}
