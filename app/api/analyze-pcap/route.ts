@@ -6,7 +6,7 @@ import PcapParser from 'pcap-parser';
 import { Readable } from 'stream';
 
 const MAX_SAMPLES_FOR_AI = 10;
-const MAX_PACKETS_TO_PROCESS_FOR_STATS = 2000;
+const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; // Tingkatkan jika perlu, perhatikan performa
 
 async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string): Promise<any> {
   console.log(`[PARSE_PCAP_PARSER_STREAM] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
@@ -25,6 +25,9 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
     const protocolGuessStats: { [key: string]: number } = {'UNKNOWN_L3': 0};
     const samplePacketsForAI: Array<any> = [];
     let promiseResolved = false;
+    
+    // --- TAMBAHKAN INI UNTUK MENGHITUNG IP TRAFFIC ---
+    const ipTraffic: { [ip: string]: { sentPackets: number, receivedPackets: number, sentBytes: number, receivedBytes: number, totalPackets: number, totalBytes: number } } = {};
 
     return new Promise((resolve, reject) => {
       const resolveOnce = (data: any) => {
@@ -53,27 +56,55 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
         let packetInfo = `Raw Link Layer Data (len ${packetLength})`;
 
         try {
-            if (packet.data && packet.data.length >= 14) {
+            if (packet.data && packet.data.length >= 14) { // Ethernet Header
                 const etherType = packet.data.readUInt16BE(12);
-                if (etherType === 0x0800) { 
+                if (etherType === 0x0800) { // IPv4
                     guessedProtocol = "IPv4";
-                    if (packet.data.length >= 14 + 20) {
-                        const ipHeader = packet.data.slice(14, 14 + 20);
+                    if (packet.data.length >= 14 + 20) { // Min IPv4 Header
+                        const ipHeader = packet.data.slice(14, 14 + ((packet.data[14] & 0x0F) * 4)); // Panjang header IP dinamis
                         sourceIp = `${ipHeader[12]}.${ipHeader[13]}.${ipHeader[14]}.${ipHeader[15]}`;
                         destIp = `${ipHeader[16]}.${ipHeader[17]}.${ipHeader[18]}.${ipHeader[19]}`;
                         const ipProtocolField = ipHeader[9];
-                        if (ipProtocolField === 6) guessedProtocol = "TCP (over IPv4)";
-                        else if (ipProtocolField === 17) guessedProtocol = "UDP (over IPv4)";
-                        else if (ipProtocolField === 1) guessedProtocol = "ICMP (over IPv4)";
-                        packetInfo = `IPv4 ${sourceIp} -> ${destIp}`;
+                        
+                        if (ipProtocolField === 6) guessedProtocol = "TCP"; // Tidak lagi "(over IPv4)"
+                        else if (ipProtocolField === 17) guessedProtocol = "UDP";
+                        else if (ipProtocolField === 1) guessedProtocol = "ICMP";
+                        else guessedProtocol = `IPv4_Proto_${ipProtocolField}`; // Protokol IP lain
+                        packetInfo = `IPv4 ${sourceIp} -> ${destIp} (${guessedProtocol})`;
                     }
-                } else if (etherType === 0x86DD) guessedProtocol = "IPv6";
-                else if (etherType === 0x0806) guessedProtocol = "ARP";
+                } else if (etherType === 0x86DD) { // IPv6
+                    guessedProtocol = "IPv6";
+                    // Parsing IPv6 lebih kompleks, untuk sekarang kita tandai saja
+                    packetInfo = `IPv6 (further parsing needed)`;
+                } else if (etherType === 0x0806) { // ARP
+                    guessedProtocol = "ARP";
+                    packetInfo = `ARP Packet`;
+                } else {
+                    guessedProtocol = `EtherType_0x${etherType.toString(16)}`;
+                }
             }
         } catch (e: any) {
             console.warn(`[PARSE_PCAP_PARSER_STREAM] Error decoding individual packet ${packetCounter}: ${e.message}`);
         }
         protocolGuessStats[guessedProtocol] = (protocolGuessStats[guessedProtocol] || 0) + 1;
+
+        // --- LOGIKA UNTUK MENGHITUNG IP TRAFFIC ---
+        if (sourceIp !== "N/A") {
+            if (!ipTraffic[sourceIp]) ipTraffic[sourceIp] = { sentPackets: 0, receivedPackets: 0, sentBytes: 0, receivedBytes: 0, totalPackets: 0, totalBytes: 0 };
+            ipTraffic[sourceIp].sentPackets++;
+            ipTraffic[sourceIp].sentBytes += packetLength;
+            ipTraffic[sourceIp].totalPackets++;
+            ipTraffic[sourceIp].totalBytes += packetLength;
+        }
+        if (destIp !== "N/A") {
+            if (!ipTraffic[destIp]) ipTraffic[destIp] = { sentPackets: 0, receivedPackets: 0, sentBytes: 0, receivedBytes: 0, totalPackets: 0, totalBytes: 0 };
+            ipTraffic[destIp].receivedPackets++;
+            ipTraffic[destIp].receivedBytes += packetLength;
+            ipTraffic[destIp].totalPackets++;
+            ipTraffic[destIp].totalBytes += packetLength;
+        }
+        // --- AKHIR LOGIKA IP TRAFFIC ---
+
 
         if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) {
           samplePacketsForAI.push({
@@ -94,7 +125,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
              parser.removeAllListeners('end');
              parser.removeAllListeners('error');
           }
-          resolveResults(); // Memanggil resolveResults di sini
+          resolveResults(); 
         }
       });
 
@@ -104,12 +135,27 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
             .slice(0, 5)
             .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {});
 
-        resolveOnce({ // Menggunakan resolveOnce
+        // --- MEMBUAT TOP TALKERS DARI IP TRAFFIC ---
+        const calculatedTopTalkers = Object.entries(ipTraffic)
+            .map(([ip, data]) => ({
+                ip,
+                packets: data.totalPackets, // Menggunakan total packets (sent + received untuk IP tersebut)
+                bytes: data.totalBytes,     // Menggunakan total bytes
+                sentPackets: data.sentPackets,
+                receivedPackets: data.receivedPackets,
+                sentBytes: data.sentBytes,
+                receivedBytes: data.receivedBytes
+            }))
+            .sort((a, b) => b.packets - a.packets) // Urutkan berdasarkan total paket
+            .slice(0, 5); // Ambil 5 teratas
+        // --- AKHIR MEMBUAT TOP TALKERS ---
+
+        resolveOnce({
           statistics: {
             totalPacketsInFile: packetCounter, 
             packetsProcessedForStats: packetCounter, 
             protocols: topProtocols,
-            topTalkers: [{ip: "N/A (detail parsing needed)", packets: 0, bytes: 0}],
+            topTalkers: calculatedTopTalkers.length > 0 ? calculatedTopTalkers : [{ip: "No IP traffic identified", packets: 0, bytes: 0}], // Gunakan hasil kalkulasi
             anomalyScore: Math.floor(Math.random() * 30) + 10, 
           },
           samplePackets: samplePacketsForAI,
@@ -125,7 +171,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
 
       parser.on('error', (err: Error) => {
         console.error(`[PARSE_PCAP_PARSER_STREAM] Error reading PCAP stream for ${fileName}:`, err);
-        rejectOnce(new Error(`Error reading PCAP stream: ${err.message}`)); // Menggunakan rejectOnce
+        rejectOnce(new Error(`Error reading PCAP stream: ${err.message}`));
       });
     }); 
   } catch (error) {
@@ -133,6 +179,10 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
     throw error; 
   }
 }
+
+// ... (Sisa kode: OpenRouter client, extractJsonFromString, dan fungsi POST handler tetap sama)
+// Pastikan fungsi parsePcapFileWithReadableStream dipanggil di dalam POST handler.
+// (Kode untuk openRouterProvider, extractJsonFromString, dan POST handler tidak berubah dari versi terakhir)
 
 const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
@@ -150,45 +200,36 @@ if (openRouterApiKey && openRouterApiKey.trim() !== "") {
   console.error("[CRITICAL_CONFIG_ERROR] OPENROUTER_API_KEY environment variable is missing or empty. AI features will be disabled.");
 }
 
-// Fungsi untuk membersihkan string JSON dari markdown backticks dan teks lain
 function extractJsonFromString(text: string): string | null {
-  if (!text || text.trim() === "") {
-    console.warn("[EXTRACT_JSON] AI returned empty or whitespace-only text.");
-    return null; // Kembalikan null jika input kosong
-  }
-  console.log("[EXTRACT_JSON] Original AI text (first 500 chars):", text.substring(0, 500));
-
-  // Mencari ```json ... ``` atau ``` ... ```
-  const markdownRegex = /```(?:json)?\s*([\s\S]*?)\s*```/;
-  const markdownMatch = text.match(markdownRegex);
-
-  if (markdownMatch && markdownMatch[1]) {
-    const extracted = markdownMatch[1].trim();
-    console.log("[EXTRACT_JSON] JSON found inside markdown backticks. Length:", extracted.length);
-    return extracted;
-  }
-  
-  // Jika tidak ada backticks, coba cari '{' pertama dan '}' terakhir sebagai upaya terbaik
-  const firstBrace = text.indexOf('{');
-  const lastBrace = text.lastIndexOf('}');
-  
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    const potentialJson = text.substring(firstBrace, lastBrace + 1);
-    // Lakukan validasi sederhana apakah ini terlihat seperti JSON sebelum mengembalikan
-    try {
-        JSON.parse(potentialJson); // Coba parse, jika berhasil, ini mungkin JSON
-        console.log("[EXTRACT_JSON] JSON found by brace matching. Length:", potentialJson.length);
-        return potentialJson;
-    } catch (e) {
-        console.warn("[EXTRACT_JSON] Brace matching did not yield valid JSON. Will attempt to parse original trimmed text.");
+    // ... (fungsi ini tetap sama)
+    if (!text || text.trim() === "") {
+        console.warn("[EXTRACT_JSON] AI returned empty or whitespace-only text.");
+        return null; 
     }
-  }
-  
-  // Jika semua gagal, kembalikan teks asli yang sudah di-trim,
-  // JSON.parse akan error jika ini bukan JSON valid.
-  const trimmedText = text.trim();
-  console.log("[EXTRACT_JSON] No markdown or clear JSON object found, returning original trimmed text. Length:", trimmedText.length);
-  return trimmedText === "" ? null : trimmedText; 
+    console.log("[EXTRACT_JSON] Original AI text (first 500 chars):", text.substring(0, 500));
+    const markdownRegex = /```(?:json)?\s*([\s\S]*?)\s*```/;
+    const markdownMatch = text.match(markdownRegex);
+
+    if (markdownMatch && markdownMatch[1]) {
+        const extracted = markdownMatch[1].trim();
+        console.log("[EXTRACT_JSON] JSON found inside markdown backticks. Length:", extracted.length);
+        return extracted;
+    }
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        const potentialJson = text.substring(firstBrace, lastBrace + 1);
+        try {
+            JSON.parse(potentialJson); 
+            console.log("[EXTRACT_JSON] JSON found by brace matching. Length:", potentialJson.length);
+            return potentialJson;
+        } catch (e) {
+            console.warn("[EXTRACT_JSON] Brace matching did not yield valid JSON, returning original text for parsing attempt.");
+        }
+    }
+    const trimmedText = text.trim();
+    console.log("[EXTRACT_JSON] No markdown or clear JSON object found, returning original trimmed text. Length:", trimmedText.length);
+    return trimmedText === "" ? null : trimmedText; 
 }
 
 export async function POST(request: NextRequest) {
@@ -242,11 +283,11 @@ export async function POST(request: NextRequest) {
       ...extractedPcapData,
     };
 
-    console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisIdFromBody}, Stats:`, dataForAI.statistics);
+    console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisIdFromBody}, Stats:`, JSON.stringify(dataForAI.statistics, null, 2)); // Log statistik yang dikirim ke AI
 
     const { text: rawAnalysisText } = await generateText({
       model: openRouterProvider(modelNameFromEnv as any),
-      prompt: `
+      prompt:  `
         You are a network security expert analyzing PCAP data.
         The data is from file: "${dataForAI.fileName}" (size: ${dataForAI.fileSize} bytes, analysis ID: ${dataForAI.analysisId}).
         
@@ -268,18 +309,18 @@ export async function POST(request: NextRequest) {
             - confidence: (0-100) your confidence in this finding
             - recommendation: a specific action to take
             - category: (malware, anomaly, exfiltration, vulnerability, reconnaissance, policy-violation, benign-but-noteworthy)
-            - affectedHosts: (optional) list of IPs primarily involved in this finding
+            - affectedHosts: (optional) list of IPs primarily involved in this finding (use actual IPs if identified in parsing)
             - relatedPackets: (optional) reference 'no' field from sample packets if applicable (e.g., [1, 5])
         4. Identify up to 3-5 Indicators of Compromise (IOCs) if any are strongly suggested by the data. For each IOC:
             - type: (ip, domain, url, hash)
-            - value: the IOC value
+            - value: the IOC value (use actual IPs or domains if identified)
             - context: why this is an IOC based on the data
             - confidence: (0-100)
-        5. Suggest 2-3 general recommendations for improving security based on patterns seen. For each recommendation:
+        5. Suggest 2-3 general recommendations for improving security based on patterns seen.
             - title
             - description
             - priority: (low, medium, high)
-        6. Create a brief timeline of up to 3-5 most significant events if discernible from the provided data (use timestamps from sample packets if relevant, use 'no' field for reference). For each timeline event:
+        6. Create a brief timeline of up to 3-5 most significant events if discernible from the provided data (use timestamps from sample packets if relevant, use 'no' field for reference).
             - time: (ISO string or relative time like "Packet Sample #1 Timestamp")
             - event: description of the event
             - severity: (info, warning, error)
@@ -290,7 +331,7 @@ export async function POST(request: NextRequest) {
           "threatLevel": "...",
           "findings": [ { "id": "...", "title": "...", ... } ],
           "iocs": [ { "type": "...", "value": "...", ... } ],
-          "statistics": ${JSON.stringify(dataForAI.statistics)},
+          "statistics": ${JSON.stringify(dataForAI.statistics)}, 
           "recommendations": [ { "title": "...", ... } ],
           "timeline": [ { "time": "...", "event": "...", "severity": "..." } ]
         }
@@ -304,8 +345,8 @@ export async function POST(request: NextRequest) {
     const cleanedJsonText = extractJsonFromString(rawAnalysisText);
     cleanedJsonTextForErrorLog = cleanedJsonText; 
 
-    if (!cleanedJsonText) { // Jika cleanedJsonText adalah null atau string kosong setelah dibersihkan
-        console.error(`[API_ANALYZE_PCAP] AI response was empty or unrecoverable after cleaning for analysisId: ${analysisIdFromBody}. Raw text was (first 500 chars):`, rawAnalysisText?.substring(0, 500));
+    if (!cleanedJsonText) {
+        console.error(`[API_ANALYZE_PCAP] AI response was empty or unrecoverable after cleaning for analysisId: ${analysisIdFromBody}. Raw text was:`, rawAnalysisText);
         throw new Error("AI returned empty or unrecoverable data after cleaning attempts.");
     }
     
@@ -327,7 +368,6 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && (error.name === 'AI_LoadAPIKeyError' || error.message.includes("API key") || error.message.includes("authentication"))) {
         return NextResponse.json({ error: "AI Provider API key is missing, invalid, or not authorized. Please check server configuration and OpenRouter account status.", details: error.message }, { status: 500 });
     }
-    // Perbarui penanganan SyntaxError untuk menyertakan raw dan cleaned text jika ada.
     if (error instanceof SyntaxError) { 
         console.error(`[API_ANALYZE_PCAP] JSON Parsing Error. Original AI text was (first 500 chars):`, rawAnalysisTextForErrorLog?.substring(0, 500));
         console.error(`[API_ANALYZE_PCAP] JSON Parsing Error. Cleaned text attempted for parse was (first 500 chars):`, cleanedJsonTextForErrorLog?.substring(0, 500));
