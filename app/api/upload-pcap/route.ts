@@ -3,8 +3,8 @@ import { type NextRequest, NextResponse } from "next/server"
 import { v4 as uuidv4 } from "uuid"
 import { put } from "@vercel/blob"
 // --- FIX START ---
-// Import specific functions/objects needed from neon-db directly
-import { pcapFileDb, testConnection as dbTestConnection } from "@/lib/neon-db";
+// Revert to default import of db object
+import db from "@/lib/neon-db"
 // --- FIX END ---
 import { getCurrentUser } from "@/lib/auth"
 
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     try {
       console.log("Testing database connection before upload...")
       // --- FIX START ---
-      await dbTestConnection(); // Use the directly imported function
+      await db.testConnection() // Access testConnection as a property of the default imported 'db' object
       // --- FIX END ---
       console.log("Database connection test successful")
     } catch (dbTestError) {
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     try {
       console.log(`Saving file information to database for analysis ${analysisId} with record ID ${recordId}`)
       // --- FIX START ---
-      pcapFile = await pcapFileDb.create({ // Use the directly imported pcapFileDb
+      pcapFile = await db.pcapFile.create({ // Access pcapFile as a property of the default imported 'db' object
       // --- FIX END ---
         data: {
           id: recordId,
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
       // Update the database record with the blob URL
       try {
         // --- FIX START ---
-        const updatedRecord = await pcapFileDb.update({ // Use the directly imported pcapFileDb
+        const updatedRecord = await db.pcapFile.update({ // Access pcapFile as a property of the default imported 'db' object
         // --- FIX END ---
           where: { id: pcapFile.id },
           data: { blobUrl: blobUrl, fileName: blob.pathname },
