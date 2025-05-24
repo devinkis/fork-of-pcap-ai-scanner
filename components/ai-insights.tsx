@@ -1,24 +1,37 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
-    Loader2, AlertTriangle, Shield, Activity, Network, FileWarning, 
-    RefreshCw, Zap, Search, ExternalLink, EyeOff, ListChecks, 
-    History, ShieldAlert, Info, Users, FileText, BarChart3, Route 
+    Card, CardContent, CardDescription, 
+    CardHeader, CardTitle, CardFooter 
+} from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; //
+import { Badge } from "@/components/ui/badge"; //
+import { Progress } from "@/components/ui/progress"; //
+import { Button } from "@/components/ui/button"; //
+import { 
+    Tabs, TabsContent, TabsList, TabsTrigger 
+} from "@/components/ui/tabs"; //
+import { 
+    Accordion, AccordionContent, AccordionItem, AccordionTrigger 
+} from "@/components/ui/accordion"; //
+import { 
+    Loader2, AlertTriangle, Shield, Activity, Network, 
+    FileWarning, RefreshCw, Zap, Search, ExternalLink, 
+    EyeOff, ListChecks, History, ShieldAlert, Info, Users, 
+    FileText, BarChart3, Route, Lightbulb, ClipboardList 
 } from "lucide-react";
-import { IOCList } from "@/components/ioc-list";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { IOCList } from "@/components/ioc-list"; //
+import { ScrollArea } from "@/components/ui/scroll-area"; //
+import { Skeleton } from "@/components/ui/skeleton"; //
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"; //
 
 interface AIInsightsProps {
   analysisId: string;
 }
 
+// Interface Insight dan AIAnalysis tetap sama seperti versi terakhir yang Anda miliki
+// Pastikan field-fieldnya sesuai dengan data yang dikembalikan oleh API /api/analyze-pcap
 interface Insight {
   id: string;
   title: string;
@@ -33,7 +46,7 @@ interface Insight {
   timeline?: {
     time: string;
     event: string;
-  }[];
+  }[]; // Timeline spesifik untuk finding ini
   mitigationSteps?: string[];
   references?: {
     title: string;
@@ -45,10 +58,10 @@ interface AIAnalysis {
   summary: string;
   threatLevel: "low" | "medium" | "high" | "critical";
   findings: Insight[];
-  statistics: {
-    totalPacketsInFile: number;
+  statistics?: { // Jadikan opsional jika API mungkin tidak selalu mengirimkannya
+    totalPacketsInFile?: number;
     packetsProcessedForStats?: number;
-    protocols: { [key: string]: number; };
+    protocols?: { [key: string]: number; };
     topTalkers?: { 
         ip: string; 
         packets: number; 
@@ -60,7 +73,7 @@ interface AIAnalysis {
     }[];
     anomalyScore?: number;
   };
-  timeline?: {
+  timeline?: { // Timeline global untuk seluruh analisis
     time: string;
     event: string;
     severity: "info" | "warning" | "error";
@@ -78,10 +91,11 @@ interface AIAnalysis {
   }[];
 }
 
+
 export function AIInsights({ analysisId }: AIInsightsProps) {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
-  const [analyzing, setAnalyzing] = useState(true);
+  const [analyzing, setAnalyzing] = useState(true); 
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
@@ -93,7 +107,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
       setAnalyzing(false);
       return;
     }
-    console.log(`[AI_INSIGHTS_COMPONENT] Initiating analysis for ID: ${analysisId}`);
+    console.log(`[AI_INSIGHTS_FE] Initiating analysis for ID: ${analysisId}`);
     setLoading(true);
     setAnalyzing(true);
     setProgress(0);
@@ -117,8 +131,8 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
         }
       }, timePerStep / (totalSteps/100)); 
 
-      console.log(`[AI_INSIGHTS_COMPONENT] Requesting AI analysis from API for analysisId: ${analysisId}`);
-      const response = await fetch("/api/analyze-pcap", {
+      console.log(`[AI_INSIGHTS_FE] Requesting AI analysis from API for analysisId: ${analysisId}`);
+      const response = await fetch("/api/analyze-pcap", { //
         method: "POST",
         headers: { "Content-Type": "application/json", },
         body: JSON.stringify({ analysisId }),
@@ -133,27 +147,29 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
         } catch (e) {
           errorData = { error: `Analysis request failed with status: ${response.status} ${response.statusText}` };
         }
-        console.error("[AI_INSIGHTS_COMPONENT] API error response:", errorData);
+        console.error("[AI_INSIGHTS_FE] API error response:", errorData);
         throw new Error(errorData.error || `Analysis failed: ${response.statusText}`);
       }
 
       const data = await response.json();
-      console.log("[AI_INSIGHTS_COMPONENT] AI Analysis data received from API:", data);
+      console.log("[AI_INSIGHTS_FE] AI Analysis data received from API:", data);
 
       if (data.success && data.analysis) {
-        const normalizedAnalysis = {
-            ...data.analysis,
-            statistics: {
+        // Normalisasi data untuk memastikan semua field yang diharapkan ada (meskipun kosong)
+        const normalizedAnalysis: AIAnalysis = {
+            summary: data.analysis.summary || "No summary provided.",
+            threatLevel: data.analysis.threatLevel || "low",
+            findings: data.analysis.findings || [],
+            statistics: { // Pastikan statistik ada, bahkan jika kosong, untuk mencegah error
                 totalPacketsInFile: data.analysis.statistics?.totalPacketsInFile || 0,
                 packetsProcessedForStats: data.analysis.statistics?.packetsProcessedForStats || data.analysis.statistics?.totalPacketsInFile || 0,
                 protocols: data.analysis.statistics?.protocols || {},
                 topTalkers: data.analysis.statistics?.topTalkers || [],
                 anomalyScore: data.analysis.statistics?.anomalyScore,
             },
-            findings: data.analysis.findings || [],
-            iocs: data.analysis.iocs || [],
-            recommendations: data.analysis.recommendations || [],
             timeline: data.analysis.timeline || [],
+            recommendations: data.analysis.recommendations || [],
+            iocs: data.analysis.iocs || [],
         };
         setAnalysis(normalizedAnalysis);
         setProgress(100);
@@ -162,12 +178,12 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
       }
     } catch (err) {
       if (progressInterval) clearInterval(progressInterval);
-      console.error("[AI_INSIGHTS_COMPONENT] Error during analysis fetch or processing:", err);
-      setError(err instanceof Error ? err.message : "An unknown error occurred during analysis.");
+      console.error("[AI_INSIGHTS_FE] Error during analysis fetch or processing:", err);
+      setError(err instanceof Error ? err.message : "An unknown error occurred during AI analysis.");
       setProgress(0);
     } finally {
-      setAnalyzing(false);
-      setLoading(false);
+      setAnalyzing(false); 
+      setLoading(false); 
     }
   };
 
@@ -177,9 +193,12 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     }
   }, [analysisId]);
 
-  const getSeverityColor = (severity?: string) => {
+  // Helper functions untuk styling (getSeverityColor, getSeverityBgColor, dll.)
+  // tetap sama seperti versi sebelumnya.
+  // ... (Sertakan helper functions Anda di sini)
+  const getSeverityColor = (severity?: string) => { /* ... implementasi dari sebelumnya ... */ 
     if (!severity) return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
-    switch (severity) {
+    switch (severity.toLowerCase()) {
       case "low": return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300";
       case "medium": return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300";
       case "high": return "bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-300";
@@ -188,20 +207,20 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     }
   };
 
-  const getSeverityBgColor = (severity?: string) => {
-    if (!severity) return "bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700";
-    switch (severity) {
-      case "low": return "bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-800";
-      case "medium": return "bg-yellow-50 border-yellow-200 dark:bg-yellow-900/30 dark:border-yellow-800";
-      case "high": return "bg-orange-50 border-orange-200 dark:bg-orange-900/30 dark:border-orange-800";
-      case "critical": return "bg-red-50 border-red-200 dark:bg-red-900/30 dark:border-red-800";
-      default: return "bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700";
+  const getSeverityBgColor = (severity?: string) => { /* ... implementasi dari sebelumnya ... */ 
+    if (!severity) return "bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700";
+    switch (severity.toLowerCase()) {
+        case "low": return "bg-blue-50 border-blue-300 dark:bg-blue-900/40 dark:border-blue-700";
+        case "medium": return "bg-yellow-50 border-yellow-300 dark:bg-yellow-900/40 dark:border-yellow-700";
+        case "high": return "bg-orange-50 border-orange-300 dark:bg-orange-900/40 dark:border-orange-700";
+        case "critical": return "bg-red-50 border-red-300 dark:bg-red-900/40 dark:border-red-700";
+        default: return "bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700";
     }
   };
   
-  const getCategoryIcon = (category?: string) => {
+  const getCategoryIcon = (category?: string) => { /* ... implementasi dari sebelumnya ... */ 
     if(!category) return <Info className="h-5 w-5 text-gray-500" />;
-    switch (category) {
+    switch (category.toLowerCase()) {
       case "malware": return <ShieldAlert className="h-5 w-5 text-red-500" />;
       case "anomaly": return <Activity className="h-5 w-5 text-yellow-500" />;
       case "exfiltration": return <Route className="h-5 w-5 text-purple-500" />;
@@ -213,19 +232,19 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     }
   };
 
-  const getTimelineSeverityColor = (severity?: string) => {
+  const getTimelineSeverityColor = (severity?: string) => { /* ... implementasi dari sebelumnya ... */ 
     if (!severity) return "bg-gray-100 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600";
-    switch (severity) {
-      case "info": return "bg-blue-100 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700";
-      case "warning": return "bg-yellow-100 border-yellow-200 dark:bg-yellow-800/30 dark:border-yellow-700";
-      case "error": return "bg-red-100 border-red-200 dark:bg-red-900/30 dark:border-red-700";
+    switch (severity.toLowerCase()) {
+      case "info": return "bg-blue-100 border-blue-300 dark:bg-blue-900/30 dark:border-blue-700";
+      case "warning": return "bg-yellow-100 border-yellow-300 dark:bg-yellow-800/30 dark:border-yellow-700";
+      case "error": return "bg-red-100 border-red-300 dark:bg-red-900/30 dark:border-red-700";
       default: return "bg-gray-100 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600";
     }
   };
 
-  const getPriorityColor = (priority?: string) => {
+  const getPriorityColor = (priority?: string) => { /* ... implementasi dari sebelumnya ... */ 
     if(!priority) return "bg-gray-100 text-gray-800";
-    switch (priority) {
+    switch (priority.toLowerCase()) {
       case "low": return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300";
       case "medium": return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300";
       case "high": return "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300";
@@ -237,62 +256,68 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     setSelectedInsight(selectedInsight?.id === insight.id ? null : insight);
   };
 
-  if (loading && analyzing) {
+
+  // Tampilan Skeleton saat loading awal
+  if (loading && analyzing) { 
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>AI Analysis in Progress</CardTitle>
-          <CardDescription>Our AI is analyzing your network traffic patterns</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>Analyzing packets...</span>
-              <span>{progress}%</span>
+      <div className="space-y-6 animate-pulse">
+        <Card className="shadow-lg">
+          <CardHeader className="pb-3">
+            <Skeleton className="h-8 w-3/4" />
+            <Skeleton className="h-4 w-1/2 mt-1" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-4 w-full mb-2" />
+            <Skeleton className="h-4 w-5/6" />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+                <Skeleton className="h-24 w-full rounded-lg" />
+                <Skeleton className="h-24 w-full rounded-lg" />
+                <Skeleton className="h-24 w-full rounded-lg" />
             </div>
-            <Progress value={progress} className="h-2" />
-            <div className="text-sm text-muted-foreground mt-2">
-              {progress < 30
-                ? "Extracting packet data and protocol information..."
-                : progress < 60
-                  ? "Analyzing network flows and connection patterns..."
-                  : progress < 90
-                    ? "Identifying potential security threats and anomalies..."
-                    : "Generating comprehensive security report..."}
+          </CardContent>
+        </Card>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-6">
+                <Skeleton className="h-64 w-full rounded-lg"/>
+                <Skeleton className="h-48 w-full rounded-lg"/>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="lg:col-span-1 space-y-6">
+                <Skeleton className="h-80 w-full rounded-lg"/>
+            </div>
+        </div>
+      </div>
     );
   }
   
-  if (error) {
+  // Tampilan Error jika fetch gagal
+  if (error) { 
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-red-500">Analysis Error</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-red-700">{error}</p>
-          <Button onClick={runAnalysis} className="mt-4" disabled={analyzing || loading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${analyzing ? "animate-spin" : ""}`} />
-            Try Again
-          </Button>
-        </CardContent>
-      </Card>
+      <Alert variant="destructive" className="shadow-md">
+          <AlertTriangle className="h-5 w-5" />
+          <AlertTitle className="text-lg">AI Analysis Error</AlertTitle>
+          <AlertDescription className="mt-2 space-y-3">
+              <p>We encountered an issue while generating AI insights for this PCAP file.</p>
+              <p className="text-sm font-mono bg-red-100/50 dark:bg-red-900/30 p-2 rounded">Details: {error}</p>
+              <Button onClick={runAnalysis} className="mt-2" disabled={analyzing || loading}> 
+                  <RefreshCw className={`mr-2 h-4 w-4 ${analyzing ? "animate-spin" : ""}`}/>Try Again 
+              </Button>
+          </AlertDescription>
+      </Alert>
     );
   }
 
+  // Tampilan jika tidak ada data analisis (setelah loading selesai dan tidak ada error)
   if (!analysis && !analyzing && !loading) { 
     return (
-      <Card>
+      <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle>AI Insights</CardTitle>
-          <CardDescription>No analysis data available.</CardDescription>
+          <CardTitle className="flex items-center"><Info className="mr-2 h-6 w-6 text-muted-foreground"/>AI Insights</CardTitle>
+          <CardDescription>No AI analysis data available for this file.</CardDescription>
         </CardHeader>
-        <CardContent className="text-center py-10">
-          <p className="text-muted-foreground">Could not load AI insights for this file.</p>
-          <Button onClick={runAnalysis} className="mt-4" disabled={analyzing || loading}>
+        <CardContent className="text-center py-12 text-muted-foreground">
+          <FileWarning className="h-16 w-16 mx-auto mb-4 text-gray-400"/>
+          <p>Could not load or generate AI insights.</p>
+          <Button onClick={runAnalysis} className="mt-6" disabled={analyzing || loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${analyzing ? "animate-spin" : ""}`} />
             Retry Analysis
           </Button>
@@ -301,456 +326,253 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     );
   }
   
+  // Fallback jika analysis masih null (seharusnya tidak tercapai jika logika di atas benar)
   if (!analysis) {
       return (
-          <Card>
-              <CardHeader>
-                  <CardTitle>AI Insights</CardTitle>
-                  <CardDescription>Waiting for analysis results...</CardDescription>
-              </CardHeader>
-              <CardContent className="flex justify-center items-center h-60">
-                  { (loading || analyzing) && <Loader2 className="h-12 w-12 animate-spin text-muted-foreground" /> }
-                  { !loading && !analyzing && <p>No analysis data to display.</p>}
-              </CardContent>
-          </Card>
+          <div className="flex justify-center items-center h-80">
+              <Loader2 className="h-12 w-12 animate-spin text-primary" />
+              <p className="ml-3 text-muted-foreground">Preparing analysis...</p>
+          </div>
       );
   }
 
-  // ----- Tampilan utama setelah data analisis diterima -----
-  // Ini adalah baris 246 di kode Anda
-  return ( 
-    <div className="space-y-6"> {/* Ini adalah baris 247 */}
-        <> {/* Ini adalah baris 248 */}
-          <Card className={`${getSeverityBgColor(analysis.threatLevel)} border-2 shadow-lg`}> {/* Baris 249 */}
-            <CardHeader className="pb-4"> {/* Baris 250 */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <CardTitle className="text-xl md:text-2xl">Threat Analysis Summary</CardTitle>
-                <Badge className={`${getSeverityColor(analysis.threatLevel)} px-3 py-1 text-sm`}>
+  // ----- Tampilan Utama Setelah Data AI Analysis Diterima -----
+  return (
+    <TooltipProvider>
+    <div className="space-y-8"> {/* Tambah spasi antar Card utama */}
+        {/* Card Ringkasan Analisis */}
+        <Card className={`${getSeverityBgColor(analysis.threatLevel)} border-2 shadow-xl rounded-xl`}>
+            <CardHeader className="pb-4 px-6 pt-5"> 
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                <div className="flex items-center gap-3">
+                    <Lightbulb className={`h-8 w-8 ${getSeverityColor(analysis.threatLevel).split(' ')[1]}`} />
+                    <CardTitle className="text-2xl lg:text-3xl font-bold">AI Threat Summary</CardTitle>
+                </div>
+                <Badge className={`${getSeverityColor(analysis.threatLevel)} px-4 py-1.5 text-sm rounded-full self-start sm:self-center`}>
                   {analysis.threatLevel?.charAt(0).toUpperCase() + (analysis.threatLevel?.slice(1) || '')} Threat Level
                 </Badge>
               </div>
-              <CardDescription className="mt-1">
-                Analysis of {(analysis.statistics?.packetsProcessedForStats ?? analysis.statistics?.totalPacketsInFile ?? 0).toLocaleString()} packets
-              </CardDescription>
+              {analysis.statistics && (analysis.statistics.packetsProcessedForStats !== undefined || analysis.statistics.totalPacketsInFile !== undefined) && (
+                <CardDescription className="mt-2 text-base">
+                    Analysis based on {(analysis.statistics.packetsProcessedForStats ?? analysis.statistics.totalPacketsInFile ?? 0).toLocaleString()} packets from the capture.
+                </CardDescription>
+              )}
             </CardHeader>
-            <CardContent>
-              <p className="text-sm md:text-base leading-relaxed">{analysis.summary}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
-                <Card className="bg-background/50 dark:bg-background/20">
-                  <CardHeader className="pb-2 pt-4">
-                    <CardTitle className="text-base font-semibold flex items-center">
-                      <ShieldAlert className="h-5 w-5 mr-2 text-red-500" />
-                      Security Findings
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="pb-4">
-                    <div className="text-3xl font-bold">{analysis.findings?.length || 0}</div>
-                    {analysis.findings && (
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {analysis.findings.filter((f) => f.severity === "critical").length} critical,{" "}
-                        {analysis.findings.filter((f) => f.severity === "high").length} high
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {analysis.statistics?.anomalyScore !== undefined && (
-                  <Card className="bg-background/50 dark:bg-background/20">
-                    <CardHeader className="pb-2 pt-4">
-                        <CardTitle className="text-base font-semibold flex items-center">
-                        <Activity className="h-5 w-5 mr-2 text-yellow-500" />
-                        Anomaly Score
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="pb-4">
-                        <div className="text-3xl font-bold">{analysis.statistics.anomalyScore}/100</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                        {analysis.statistics.anomalyScore < 30
-                            ? "Normal behavior"
-                            : analysis.statistics.anomalyScore < 60
-                            ? "Some unusual patterns"
-                            : "Highly anomalous"}
+            <CardContent className="px-6 pb-6">
+              <p className="text-md leading-relaxed text-foreground/90">{analysis.summary}</p>
+              
+              {/* Statistik Ringkas dari AI (jika ada) */}
+              {analysis.statistics && (analysis.statistics.anomalyScore !== undefined || (analysis.statistics.topTalkers && analysis.statistics.topTalkers.length > 0)) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-6 pt-4 border-t dark:border-slate-700">
+                    {analysis.findings?.length > 0 && (
+                        <div className="bg-background/60 dark:bg-slate-800/50 p-4 rounded-lg shadow">
+                            <div className="flex items-center text-sm font-semibold text-red-600 dark:text-red-400 mb-1">
+                                <ShieldAlert className="h-5 w-5 mr-2" />
+                                Key Findings
+                            </div>
+                            <div className="text-3xl font-bold">{analysis.findings.length}</div>
+                            <p className="text-xs text-muted-foreground">
+                                {analysis.findings.filter(f => f.severity === 'critical').length} critical, {analysis.findings.filter(f => f.severity === 'high').length} high
+                            </p>
                         </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {analysis.statistics?.topTalkers && analysis.statistics.topTalkers.length > 0 && analysis.statistics.topTalkers[0] && (
-                    <Card className="bg-background/50 dark:bg-background/20">
-                        <CardHeader className="pb-2 pt-4">
-                            <CardTitle className="text-base font-semibold flex items-center">
-                                <Users className="h-5 w-5 mr-2 text-blue-500" />
-                                Top Talker
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent className="pb-4">
-                            <div className="text-lg font-bold truncate" title={analysis.statistics.topTalkers[0].ip || "Unknown"}>
+                    )}
+                    {analysis.statistics.anomalyScore !== undefined && (
+                        <div className="bg-background/60 dark:bg-slate-800/50 p-4 rounded-lg shadow">
+                            <div className="flex items-center text-sm font-semibold text-yellow-600 dark:text-yellow-400 mb-1">
+                            <Activity className="h-5 w-5 mr-2" />
+                            Anomaly Score
+                            </div>
+                            <div className="text-3xl font-bold">{analysis.statistics.anomalyScore}/100</div>
+                        </div>
+                    )}
+                    {analysis.statistics.topTalkers && analysis.statistics.topTalkers.length > 0 && analysis.statistics.topTalkers[0] && (
+                        <div className="bg-background/60 dark:bg-slate-800/50 p-4 rounded-lg shadow">
+                            <div className="flex items-center text-sm font-semibold text-blue-600 dark:text-blue-400 mb-1">
+                                <Users className="h-5 w-5 mr-2" />
+                                Top Talker (IP)
+                            </div>
+                            <div className="text-xl font-bold truncate" title={analysis.statistics.topTalkers[0].ip || "N/A"}>
                                 {analysis.statistics.topTalkers[0].ip || "N/A"}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">
-                               {(analysis.statistics.topTalkers[0].packets || 0).toLocaleString()} packets 
-                               ({((analysis.statistics.topTalkers[0].bytes || 0) / 1024 / 1024).toFixed(2)} MB)
-                            </div>
+                            <p className="text-xs text-muted-foreground">
+                               {(analysis.statistics.topTalkers[0].packets || 0).toLocaleString()} pkts
+                            </p>
+                        </div>
+                    )}
+                </div>
+              )}
+            </CardContent>
+        </Card>
+
+        {/* Layout Dua Kolom untuk Detail */}
+        <div className="grid grid-cols-1 lg:grid-cols-7 gap-x-8 gap-y-6">
+            {/* Kolom Kiri: Findings & Recommendations */}
+            <div className="lg:col-span-4 space-y-6">
+                {analysis.findings && analysis.findings.length > 0 && (
+                    <Card className="shadow-lg">
+                        <CardHeader>
+                        <CardTitle className="text-xl flex items-center">
+                            <ListChecks className="h-6 w-6 mr-3 text-primary"/> Security Findings
+                        </CardTitle>
+                        <CardDescription>AI-detected security issues and potential threats in your network traffic.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                        <Accordion type="multiple" className="w-full">
+                            {analysis.findings.map((finding) => (
+                            <AccordionItem value={finding.id} key={finding.id} className="border-b dark:border-slate-700">
+                                <AccordionTrigger className={`py-4 px-2 text-left hover:no-underline ${selectedInsight?.id === finding.id ? 'bg-muted dark:bg-slate-800' : ''}`}>
+                                    <div className="flex items-center gap-3 w-full">
+                                        <span className={`p-2 rounded-full ${getSeverityBgColor(finding.severity)}`}>
+                                            {getCategoryIcon(finding.category)}
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                            <h4 className="font-semibold text-md truncate" title={finding.title}>{finding.title}</h4>
+                                            <p className="text-xs text-muted-foreground line-clamp-1">{finding.description}</p>
+                                        </div>
+                                        <Badge className={`${getSeverityColor(finding.severity)} text-xs self-start mt-1`}>
+                                            {finding.severity?.charAt(0).toUpperCase() + (finding.severity?.slice(1) || '')}
+                                        </Badge>
+                                    </div>
+                                </AccordionTrigger>
+                                <AccordionContent className="pt-2 pb-4 px-2 space-y-3 text-sm leading-relaxed bg-slate-50 dark:bg-slate-800/50 rounded-b-md">
+                                    <p><strong className="font-medium text-foreground/80">Description:</strong> {finding.description}</p>
+                                    {finding.detailedAnalysis && (
+                                        <p><strong className="font-medium text-foreground/80">Detailed Analysis:</strong> {finding.detailedAnalysis}</p>
+                                    )}
+                                    {finding.affectedHosts && finding.affectedHosts.length > 0 && (
+                                        <div>
+                                        <strong className="font-medium text-foreground/80">Affected Hosts:</strong>
+                                        <div className="flex flex-wrap gap-1.5 mt-1">
+                                            {finding.affectedHosts.map((host, index) => (
+                                            <Badge key={index} variant="secondary" className="font-mono text-xs">{host}</Badge>
+                                            ))}
+                                        </div>
+                                        </div>
+                                    )}
+                                    {finding.relatedPackets && finding.relatedPackets.length > 0 && (
+                                        <div>
+                                        <strong className="font-medium text-foreground/80">Related Packet Samples (Indices):</strong>
+                                        <div className="flex flex-wrap gap-1.5 mt-1">
+                                            {finding.relatedPackets.map((packetId, index) => (
+                                            <Badge key={index} variant="outline" className="text-xs">#{packetId}</Badge>
+                                            ))}
+                                        </div>
+                                        </div>
+                                    )}
+                                    {finding.recommendation && (
+                                        <p className="pt-2 border-t dark:border-slate-700"><strong className="font-medium text-foreground/80">Recommendation:</strong> {finding.recommendation}</p>
+                                    )}
+                                    {finding.mitigationSteps && finding.mitigationSteps.length > 0 && (
+                                        <div className="pt-2 border-t dark:border-slate-700">
+                                            <strong className="font-medium text-foreground/80 mb-1 block">Mitigation Steps:</strong>
+                                            <ul className="list-disc pl-5 space-y-1 text-xs">
+                                                {finding.mitigationSteps.map((step, idx) => <li key={idx}>{step}</li>)}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {finding.references && finding.references.length > 0 && (
+                                        <div className="pt-2 border-t dark:border-slate-700">
+                                            <strong className="font-medium text-foreground/80 mb-1 block">References:</strong>
+                                            <ul className="space-y-1">
+                                            {finding.references.map((ref, index) => (
+                                                <li key={index}>
+                                                <a href={ref.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline text-xs flex items-center">
+                                                    {ref.title} <ExternalLink className="h-3 w-3 ml-1.5"/>
+                                                </a>
+                                                </li>
+                                            ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </AccordionContent>
+                            </AccordionItem>
+                            ))}
+                        </Accordion>
                         </CardContent>
                     </Card>
                 )}
-              </div>
-            </CardContent>
-          </Card>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-            <div className="lg:col-span-2 space-y-6">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-xl flex items-center">
-                        <ListChecks className="h-6 w-6 mr-2 text-primary"/> Security Findings
-                    </CardTitle>
-                    <Button variant="outline" size="sm" onClick={runAnalysis} disabled={analyzing || loading}>
-                      <RefreshCw className={`h-4 w-4 mr-2 ${analyzing ? "animate-spin" : ""}`} />
-                      Refresh
-                    </Button>
-                  </div>
-                  <CardDescription>AI-detected security issues in your network traffic</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {analysis.findings?.length > 0 ? (
-                    <div className="space-y-4">
-                      {analysis.findings.map((finding) => (
-                        <Card
-                          key={finding.id}
-                          className={`${getSeverityBgColor(finding.severity)} border cursor-pointer transition-all hover:shadow-lg ${
-                            selectedInsight?.id === finding.id ? "ring-2 ring-primary shadow-xl" : "shadow-md"
-                          }`}
-                          onClick={() => handleInsightClick(finding)}
-                        >
-                          <CardHeader className="flex flex-row items-start space-x-3 p-4">
-                            <div className={`p-2 rounded-md ${getSeverityBgColor(finding.severity)}`}>
-                                {getCategoryIcon(finding.category)}
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between">
-                                <CardTitle className="text-md font-semibold leading-snug">{finding.title}</CardTitle>
-                                <Badge className={`${getSeverityColor(finding.severity)} text-xs`}>
-                                  {finding.severity?.charAt(0).toUpperCase() + (finding.severity?.slice(1) || '')}
-                                </Badge>
-                              </div>
-                              <CardDescription className="mt-1 text-xs line-clamp-2">{finding.description}</CardDescription>
-                            </div>
-                          </CardHeader>
-                          {selectedInsight?.id === finding.id && (
-                             <CardContent className="pt-0 pb-4 px-4 space-y-2 text-sm">
-                                <p><strong className="font-medium">Full Description:</strong> {selectedInsight.description}</p>
-                                {selectedInsight.detailedAnalysis && (
-                                  <p><strong className="font-medium">Detailed Analysis:</strong> {selectedInsight.detailedAnalysis}</p>
-                                )}
-                                {selectedInsight.affectedHosts && selectedInsight.affectedHosts.length > 0 && (
-                                  <div>
-                                    <strong className="font-medium">Affected Hosts:</strong>
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                      {selectedInsight.affectedHosts.map((host, index) => (
-                                        <Badge key={index} variant="outline" className="font-mono text-xs">{host}</Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                 {selectedInsight.recommendation && (
-                                    <p className="mt-2 pt-2 border-t"><strong className="font-medium">Recommendation:</strong> {selectedInsight.recommendation}</p>
-                                 )}
-                             </CardContent>
-                          )}
-                        </Card>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-10 text-muted-foreground">
-                      <Shield className="h-12 w-12 mx-auto mb-4 text-green-500"/>
-                      <p>No specific security findings detected by the AI for this file.</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {analysis.recommendations && analysis.recommendations.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-xl flex items-center">
-                        <Zap className="h-6 w-6 mr-2 text-primary"/> Recommended Actions
-                    </CardTitle>
-                    <CardDescription>Steps to address identified security issues</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                        {analysis.recommendations.map((recommendation, index) => (
-                        <div key={index} className="p-4 border rounded-lg bg-card flex items-start shadow-sm">
-                            <div
-                            className={`flex-shrink-0 p-2.5 rounded-full ${
-                                recommendation.priority === "high"
-                                ? "bg-red-100 dark:bg-red-900/30"
-                                : recommendation.priority === "medium"
-                                    ? "bg-yellow-100 dark:bg-yellow-800/30"
-                                    : "bg-blue-100 dark:bg-blue-800/30"
-                            } mr-4`}
-                            >
-                            {recommendation.priority === "high" ? (
-                                <Zap className="h-5 w-5 text-red-600 dark:text-red-400" />
-                            ) : recommendation.priority === "medium" ? (
-                                <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
-                            ) : (
-                                <Shield className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                            )}
-                            </div>
-                            <div className="flex-1">
-                            <div className="flex items-baseline justify-between">
-                                <h4 className="font-semibold text-md">{recommendation.title}</h4>
-                                <Badge className={`ml-2 ${getPriorityColor(recommendation.priority)} text-xs`}>
-                                {recommendation.priority?.charAt(0).toUpperCase() + (recommendation.priority?.slice(1) || '')}
-                                </Badge>
-                            </div>
-                            <p className="text-sm text-muted-foreground mt-1 leading-snug">{recommendation.description}</p>
-                            </div>
-                        </div>
-                        ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div> 
-
-            <div className="lg:col-span-1 space-y-6">
-              {selectedInsight && ( 
-                <Card className="sticky top-6 shadow-lg"> 
-                  <CardHeader className={`${getSeverityBgColor(selectedInsight.severity)} border-b`}>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center text-lg">
-                        <span className="mr-2">{getCategoryIcon(selectedInsight.category)}</span>
-                        {selectedInsight.title}
-                      </CardTitle>
-                    </div>
-                    <CardDescription>
-                      Confidence: {selectedInsight.confidence}% | Category:{" "}
-                      {selectedInsight.category?.charAt(0).toUpperCase() + (selectedInsight.category?.slice(1) || '')}
-                    </CardDescription>
-                  </CardHeader>
-                  <Tabs defaultValue="details" className="w-full">
-                    <CardContent className="p-0"> 
-                        <TabsList className="grid w-full grid-cols-3 rounded-none border-b">
-                            <TabsTrigger value="details" className="py-3 data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none">Details</TabsTrigger>
-                            <TabsTrigger value="timeline" className="py-3 data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none" disabled={!selectedInsight.timeline || selectedInsight.timeline.length === 0}>Timeline</TabsTrigger>
-                            <TabsTrigger value="mitigation" className="py-3 data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none">Mitigation</TabsTrigger>
-                        </TabsList>
-                    </CardContent>
-                    <ScrollArea className="h-[calc(100vh-20rem)] md:h-auto md:max-h-[500px]"> 
-                        <CardContent className="p-4"> 
-                            <TabsContent value="details" className="mt-0 space-y-3 text-sm">
-                                <p><strong className="font-medium">Full Description:</strong> {selectedInsight.description}</p>
-                                {selectedInsight.detailedAnalysis && ( <p><strong className="font-medium">Detailed Analysis:</strong> {selectedInsight.detailedAnalysis}</p> )}
-                                {selectedInsight.affectedHosts && selectedInsight.affectedHosts.length > 0 && ( 
-                                    <div>
-                                        <strong className="font-medium">Affected Hosts:</strong>
-                                        <div className="flex flex-wrap gap-1 mt-1">
-                                        {selectedInsight.affectedHosts.map((host, index) => (
-                                            <Badge key={index} variant="outline" className="font-mono text-xs">{host}</Badge>
-                                        ))}
-                                        </div>
-                                    </div>
-                                )}
-                                {selectedInsight.relatedPackets && selectedInsight.relatedPackets.length > 0 && ( 
-                                     <div>
-                                        <strong className="font-medium">Related Packet Samples (Indices):</strong>
-                                        <div className="flex flex-wrap gap-1 mt-1">
-                                        {selectedInsight.relatedPackets.map((packetId, index) => (
-                                            <Badge key={index} variant="secondary" className="text-xs">#{packetId}</Badge>
-                                        ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </TabsContent>
-                            <TabsContent value="timeline" className="mt-0"> 
-                                {selectedInsight.timeline && selectedInsight.timeline.length > 0 ? (
-                                <div className="relative pl-6 border-l-2 border-muted space-y-4">
-                                    {selectedInsight.timeline.map((event, index) => (
-                                    <div key={index} className="relative">
-                                        <div className="absolute -left-[25px] top-1 w-4 h-4 rounded-full bg-primary"></div>
-                                        <div className="text-xs text-muted-foreground">{event.time}</div>
-                                        <div className="text-sm mt-0.5">{event.event}</div>
-                                    </div>
-                                    ))}
+                {analysis.recommendations && analysis.recommendations.length > 0 && (
+                    <Card className="shadow-lg">
+                        <CardHeader>
+                        <CardTitle className="text-xl flex items-center">
+                            <Zap className="h-6 w-6 mr-3 text-primary"/> General Recommendations
+                        </CardTitle>
+                        <CardDescription>Overall suggestions to improve security posture based on the analysis.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                        <div className="space-y-4">
+                            {analysis.recommendations.map((rec, index) => (
+                            <div key={index} className="p-4 border dark:border-slate-700 rounded-lg bg-background/70 dark:bg-slate-800/50 flex items-start shadow-sm hover:shadow-md transition-shadow">
+                                <div className={`flex-shrink-0 p-2.5 rounded-full ${getPriorityColor(rec.priority).replace('text-', 'bg-').replace('800', '100 dark:bg-opacity-30')} mr-4`}>
+                                {rec.priority === "high" ? <Zap className={`h-5 w-5 ${getPriorityColor(rec.priority).split(' ')[1]}`} />
+                                : rec.priority === "medium" ? <AlertTriangle className={`h-5 w-5 ${getPriorityColor(rec.priority).split(' ')[1]}`} />
+                                : <Shield className={`h-5 w-5 ${getPriorityColor(rec.priority).split(' ')[1]}`} />}
                                 </div>
-                                ) : (
-                                <p className="text-sm text-muted-foreground text-center py-4">No specific timeline available for this finding.</p>
-                                )}
-                            </TabsContent>
-                            <TabsContent value="mitigation" className="mt-0 space-y-3 text-sm"> 
-                                {selectedInsight.mitigationSteps && selectedInsight.mitigationSteps.length > 0 ? (
-                                <>
-                                    <div>
-                                    <h4 className="font-medium mb-1.5">Recommended Actions:</h4>
-                                    <ul className="list-decimal pl-5 space-y-1.5">
-                                        {selectedInsight.mitigationSteps.map((step, index) => (
-                                        <li key={index}>{step}</li>
-                                        ))}
-                                    </ul>
-                                    </div>
-                                    {selectedInsight.recommendation && selectedInsight.recommendation !== selectedInsight.description && (
-                                        <p><strong className="font-medium">General Recommendation:</strong> {selectedInsight.recommendation}</p>
-                                    )}
-                                </>
-                                ) : selectedInsight.recommendation ? (
-                                    <p><strong className="font-medium">Recommendation:</strong> {selectedInsight.recommendation}</p>
-                                ) : (
-                                    <p className="text-muted-foreground text-center py-4">No specific mitigation steps provided.</p>
-                                )}
-                                {selectedInsight.references && selectedInsight.references.length > 0 && (
-                                    <div className="mt-4">
-                                    <h4 className="font-medium mb-1.5">References:</h4>
-                                    <ul className="space-y-1">
-                                        {selectedInsight.references.map((ref, index) => (
-                                        <li key={index}>
-                                            <a
-                                            href={ref.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-blue-600 hover:underline flex items-center text-xs"
-                                            >
-                                            {ref.title} <ExternalLink className="h-3 w-3 ml-1"/>
-                                            </a>
-                                        </li>
-                                        ))}
-                                    </ul>
-                                    </div>
-                                )}
-                            </TabsContent>
+                                <div className="flex-1">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="font-semibold text-md">{rec.title}</h4>
+                                    <Badge className={`${getPriorityColor(rec.priority)} text-xs`}>
+                                    {rec.priority?.charAt(0).toUpperCase() + (rec.priority?.slice(1) || '')}
+                                    </Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground mt-1 leading-snug">{rec.description}</p>
+                                </div>
+                            </div>
+                            ))}
+                        </div>
                         </CardContent>
-                    </ScrollArea>
-                  </Tabs>
-                </Card>
-              )}
+                    </Card>
+                )}
+            </div>
 
-              {(!selectedInsight && analysis.findings && analysis.findings.length > 0) && (
-                 <Card className="sticky top-6">
+            {/* Kolom Kanan: IOCs & Timeline */}
+            <div className="lg:col-span-3 space-y-6">
+                {analysis.iocs && analysis.iocs.length > 0 && (
+                    <Card className="shadow-lg">
                     <CardHeader>
-                        <CardTitle className="flex items-center"><Info className="mr-2 h-5 w-5 text-blue-500"/>Finding Details</CardTitle>
-                        <CardDescription>Select a finding from the list on the left to view its detailed information here.</CardDescription>
+                        <CardTitle className="text-xl flex items-center">
+                            <FileText className="h-6 w-6 mr-3 text-primary"/> Indicators of Compromise
+                        </CardTitle>
+                        <CardDescription>Potential IOCs extracted from the PCAP analysis.</CardDescription>
                     </CardHeader>
-                    <CardContent className="text-center py-10 text-muted-foreground">
-                        <Search className="h-10 w-10 mx-auto mb-3 text-gray-400" />
-                        <p>Click on a security finding to see details.</p>
+                    <CardContent>
+                        <IOCList iocs={analysis.iocs} />
                     </CardContent>
-                 </Card>
-              )}
-            
-              {analysis.iocs && analysis.iocs.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-xl flex items-center">
-                        <FileText className="h-6 w-6 mr-2 text-primary"/> Indicators of Compromise
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                     <IOCList iocs={analysis.iocs} />
-                  </CardContent>
-                </Card>
-              )}
+                    </Card>
+                )}
 
-              {analysis.timeline && analysis.timeline.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-xl flex items-center">
-                        <History className="h-6 w-6 mr-2 text-primary"/> Overall Activity Timeline
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="max-h-[300px] pr-3">
-                        <div className="relative pl-6 border-l-2 border-muted space-y-4">
-                            {analysis.timeline.map((event, index) => ( 
-                                <div key={index} className="relative">
-                                    <div
-                                    className={`absolute -left-[25px] top-1 w-4 h-4 rounded-full ${
-                                        event.severity === "error"
-                                        ? "bg-red-500"
-                                        : event.severity === "warning"
-                                            ? "bg-yellow-500"
-                                            : "bg-blue-500"
-                                    }`}
-                                    ></div>
-                                    <div className="text-xs text-muted-foreground">{event.time}</div>
-                                    <div
-                                    className={`text-sm mt-0.5 p-2 rounded-md ${getTimelineSeverityColor(event.severity)} border`}
-                                    >
-                                    {event.event}
+                {analysis.timeline && analysis.timeline.length > 0 && (
+                    <Card className="shadow-lg">
+                    <CardHeader>
+                        <CardTitle className="text-xl flex items-center">
+                            <History className="h-6 w-6 mr-3 text-primary"/> Activity Timeline
+                        </CardTitle>
+                        <CardDescription>Chronological view of significant detected events.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <ScrollArea className="max-h-[400px] pr-3"> {/* Scroll jika timeline panjang */}
+                            <div className="relative pl-3 border-l-2 border-muted dark:border-slate-700 space-y-5">
+                                {analysis.timeline.map((event, index) => ( 
+                                    <div key={index} className="relative pl-5"> {/* Tambah padding kiri untuk item */}
+                                        <div className={`absolute left-[-7px] top-1.5 w-3 h-3 rounded-full border-2 border-background dark:border-slate-900 ${getTimelineSeverityColor(event.severity).split(' ')[0].replace('bg-', 'border-')}`}></div>
+                                        <div className={`absolute left-[-6px] top-[7px] w-2.5 h-2.5 rounded-full ${getTimelineSeverityColor(event.severity).split(' ')[0]}`}></div>
+                                        
+                                        <p className="text-xs text-muted-foreground mb-0.5">{event.time}</p>
+                                        <p className={`text-sm font-medium p-2.5 rounded-md shadow-sm ${getTimelineSeverityColor(event.severity)} border`}>
+                                            {event.event}
+                                        </p>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-              )}
-
-              {analysis.statistics && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-xl flex items-center">
-                        <BarChart3 className="h-6 w-6 mr-2 text-primary"/> Traffic Statistics
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                        <div>
-                        <h4 className="text-sm font-medium mb-2">Protocol Distribution</h4>
-                        <div className="space-y-2">
-                            {Object.entries(analysis.statistics.protocols || {}).map(([protocol, count]) => { // Tambah check protocols
-                            if (count === 0 && protocol.toUpperCase() !== 'UNKNOWN_L3' && protocol.toUpperCase() !== 'UNKNOWNL4') return null; 
-                            const denominator = analysis.statistics?.packetsProcessedForStats ?? analysis.statistics?.totalPacketsInFile ?? 1;
-                            const percentage = Math.round((count / (denominator === 0 ? 1 : denominator)) * 100);
-                            return (
-                                <div key={protocol} className="space-y-1">
-                                <div className="flex justify-between text-sm">
-                                    <span>{protocol}</span>
-                                    <span>
-                                    {(count || 0).toLocaleString()} ({percentage}%)
-                                    </span>
-                                </div>
-                                <Progress value={percentage} className="h-2" />
-                                </div>
-                            );
-                            })}
-                        </div>
-                        </div>
-
-                        {analysis.statistics.topTalkers && analysis.statistics.topTalkers.length > 0 && analysis.statistics.topTalkers[0] && (
-                        <div>
-                            <h4 className="text-sm font-medium mb-2">Top Talkers</h4>
-                            <div className="space-y-2">
-                            {analysis.statistics.topTalkers.map((talker, index) => (
-                                <div key={index} className="flex justify-between items-center p-2 bg-muted/50 rounded-md">
-                                <div className="flex items-center min-w-0"> {/* Tambah min-w-0 untuk truncate */}
-                                    <div
-                                    className={`w-2 h-8 rounded-sm mr-2 flex-shrink-0 ${
-                                        index === 0 ? "bg-red-500" : index === 1 ? "bg-orange-500" : "bg-yellow-500"
-                                    }`}
-                                    ></div>
-                                    <div className="min-w-0"> {/* Tambah min-w-0 untuk truncate */}
-                                      <div className="text-sm font-medium truncate" title={talker.ip}>{talker.ip || "N/A"}</div>
-                                      <div className="text-xs text-muted-foreground">
-                                          {(talker.packets || 0).toLocaleString()} packets
-                                      </div>
-                                    </div>
-                                </div>
-                                <div className="text-sm whitespace-nowrap pl-2">{((talker.bytes || 0) / 1024 / 1024).toFixed(2)} MB</div>
-                                </div>
-                            ))}
+                                ))}
                             </div>
-                        </div>
-                        )}
-                    </div>
-                   </CardContent>
-                </Card>
-              )}
-            </div> 
-          </div>
+                        </ScrollArea>
+                    </CardContent>
+                    </Card>
+                )}
+            </div>
+        </div>
         </>
     </div>
+    </TooltipProvider>
   );
 }

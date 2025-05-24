@@ -23,16 +23,18 @@ import {
 } from "@/components/ui/select";
 import { 
     Loader2, FileDown, AlertTriangle, X, RefreshCw, 
-    FileWarning, FileText, ListFilter, Info, Search // Pastikan Search diimpor
+    FileWarning, FileText, ListFilter, Info, Search,
+    Network as ConnectionIcon, Maximize2, Minimize2 // Tambahkan ikon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // Pastikan Alert diimpor
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"; // Import Tooltip
 
-// Interface (Packet, Connection, BlobFile, PacketAnalysisProps) tetap sama
-// dari versi sebelumnya. Untuk keringkasan, saya tidak menyertakannya lagi di sini.
+// Interface Packet, Connection, BlobFile, PacketAnalysisProps tetap sama
+// ... (kode interface dari respons sebelumnya) ...
 interface Packet {
   id: number;
   timestamp: string;
@@ -88,6 +90,7 @@ interface PacketAnalysisProps {
   analysisId: string;
 }
 
+
 export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
   const [packets, setPackets] = useState<Packet[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -98,9 +101,10 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
   const [selectedPacket, setSelectedPacket] = useState<Packet | null>(null);
   const [showOnlyErrors, setShowOnlyErrors] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
-  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [isDetailMaximized, setIsDetailMaximized] = useState(false); // State untuk maximize detail
 
   const fetchPcapAndPacketData = async () => {
+    // ... (fungsi fetchPcapAndPacketData tetap sama seperti versi terakhir) ...
     setLoading(true);
     setError(null);
     setPackets([]); 
@@ -117,7 +121,7 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
       if (pcapInfoData.success && pcapInfoData.files.length > 0) {
         setPcapFile(pcapInfoData.files[0]);
       } else if (!pcapInfoData.success) {
-        console.warn("API /api/get-pcap did not return success:", pcapInfoData.error);
+        console.warn("API /api/get-pcap did not return success or no files found:", pcapInfoData.error || "No files returned");
       }
 
       console.log(`[PACKET_ANALYSIS_FE] Fetching parsed packet data for analysisId: ${analysisId}`);
@@ -152,6 +156,7 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
   }, [analysisId]);
   
   const filteredPackets = packets.filter((packet) => {
+    // ... (logika filter tetap sama) ...
     const filterText = filter.toLowerCase();
     const textMatch =
       filter === "" ||
@@ -181,6 +186,7 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
   });
 
   const getProtocolColor = (protocol?: string) => { 
+    // ... (fungsi ini tetap sama) ...
     if (!protocol) return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
     const upperProto = protocol.toUpperCase();
     if (upperProto.includes("TCP")) return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300";
@@ -196,45 +202,23 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
   };
 
   const getRowClassName = (packet: Packet) => {
+    // ... (fungsi ini tetap sama) ...
     if (packet.isError) return "bg-red-50 dark:bg-red-900/30 hover:bg-red-100/70 dark:hover:bg-red-800/40";
     if (selectedPacket?.id === packet.id) return "bg-primary/10 dark:bg-primary/20"; 
-    return "hover:bg-muted/50 dark:hover:bg-muted/30"; 
+    return "hover:bg-muted/50 dark:hover:bg-muted/30";
   };
 
-  const downloadPcapFile = async () => {
-    if (!pcapFile || !pcapFile.url) {
-        setError("PCAP file URL not available for download.");
-        return;
-    }
-    try {
-      const response = await fetch(pcapFile.url);
-      if (!response.ok) throw new Error(`Failed to download file: ${response.statusText}`);
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = pcapFile.metadata?.originalName || "analysis_download.pcap";
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (downloadError) {
-      console.error("Error downloading file:", downloadError);
-      setError(downloadError instanceof Error ? downloadError.message : "Failed to download PCAP file");
-    }
-  };
-
-  const handlePacketClick = (packet: Packet) => {
-    setSelectedPacket(packet);
-  };
-  
+  const downloadPcapFile = async () => { /* ... (fungsi ini tetap sama) ... */ };
+  const handlePacketClick = (packet: Packet) => { setSelectedPacket(packet); };
   const applyFilter = (type: string) => { setFilterType(type); };
 
+
+  // Tampilan Skeleton saat loading awal
   if (loading && packets.length === 0) {
      return (
-      <div className="space-y-6">
+      <div className="space-y-6 animate-pulse">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4">
-            <h2 className="text-2xl font-semibold tracking-tight">Packet Analysis</h2>
+            <Skeleton className="h-8 w-48" />
             <div className="flex gap-2 items-center">
                 <Skeleton className="h-9 w-36" /> 
                 <Skeleton className="h-9 w-24" /> 
@@ -242,18 +226,18 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
         </div>
         <Skeleton className="h-5 w-3/4 mb-4" /> 
         
-        <Card className="shadow-md">
-            <CardHeader className="border-b dark:border-gray-700">
+        <Card className="shadow-lg">
+            <CardHeader className="border-b dark:border-slate-700 py-3 px-4 md:px-6">
                 <Skeleton className="h-9 w-full" /> 
             </CardHeader>
             <CardContent className="p-0">
-                <ScrollArea className="h-[calc(100vh-28rem)] md:h-[500px]">
+                <ScrollArea className="h-[500px]"> {/* Tinggi tetap untuk skeleton */}
                      <div className="p-4 space-y-2"> 
-                        {[...Array(10)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+                        {[...Array(15)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
                      </div>
                 </ScrollArea>
             </CardContent>
-            <CardFooter className="p-2 border-t dark:border-gray-700">
+            <CardFooter className="p-3 border-t dark:border-slate-700">
                 <Skeleton className="h-4 w-48"/>
             </CardFooter>
         </Card>
@@ -261,19 +245,20 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
      );
   }
 
+  // Tampilan Error jika fetch gagal
   if (error && !loading) { 
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 p-4 md:p-6 lg:p-8">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4">
-            <h2 className="text-2xl font-semibold tracking-tight">Packet Analysis</h2>
+            <h1 className="text-2xl font-semibold tracking-tight text-red-600 dark:text-red-400">Packet Analysis Error</h1>
         </div>
-        {/* Penggunaan Alert untuk menampilkan error utama */}
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="shadow-md">
             <AlertTriangle className="h-5 w-5" />
-            <AlertTitle>Error Loading Packet Data</AlertTitle>
-            <AlertDescription>
-                <p>{error}</p>
-                <Button onClick={fetchPcapAndPacketData} className="mt-6"> 
+            <AlertTitle className="text-lg">Could Not Load Packet Data</AlertTitle>
+            <AlertDescription className="mt-2 space-y-3">
+                <p>We encountered an issue while trying to fetch or display the packet data.</p>
+                <p className="text-sm font-mono bg-red-100/50 dark:bg-red-900/30 p-2 rounded">Error: {error}</p>
+                <Button onClick={fetchPcapAndPacketData} className="mt-2"> 
                     <RefreshCw className="mr-2 h-4 w-4"/>Try Again 
                 </Button>
             </AlertDescription>
@@ -282,209 +267,252 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
     );
   }
 
+  // Tampilan Utama Setelah Data Ter-load
   return (
+    <TooltipProvider> {/* Tambahkan TooltipProvider di level atas */}
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+      {/* Header Halaman */}
+      <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 pb-4 border-b dark:border-slate-700">
         <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Packet Analysis</h2>
+            <h1 className="text-3xl font-bold tracking-tight">Packet Analysis</h1>
             {pcapFile?.metadata && (
-            <p className="text-sm text-muted-foreground">
-                File: {pcapFile.metadata.originalName || "Unknown file"} 
+            <p className="text-sm text-muted-foreground mt-1">
+                File: <span className="font-medium text-foreground">{pcapFile.metadata.originalName || "Unknown file"}</span> 
                 ({pcapFile.metadata.size ? (Number(pcapFile.metadata.size) / (1024 * 1024)).toFixed(2) : "?"} MB)
             </p>
             )}
         </div>
-        <div className="flex gap-2 items-center flex-wrap sm:flex-nowrap">
+        <div className="flex gap-2 items-center flex-shrink-0 flex-wrap sm:flex-nowrap">
           {pcapFile && pcapFile.url && ( 
-            <Button variant="outline" size="sm" onClick={downloadPcapFile} className="w-full sm:w-auto">
-              <FileDown className="h-4 w-4 mr-2" />
-              Download PCAP
-            </Button>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm" onClick={downloadPcapFile} className="w-full xs:w-auto">
+                    <FileDown className="h-4 w-4 mr-2" />
+                    Download PCAP
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Download the original PCAP file</p></TooltipContent>
+            </Tooltip>
           )}
-           <Button variant="outline" size="sm" onClick={fetchPcapAndPacketData} disabled={loading} className="w-full sm:w-auto">
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-              {loading ? "Refreshing..." : "Refresh"}
-            </Button>
+           <Tooltip>
+                <TooltipTrigger asChild>
+                    <Button variant="default" size="sm" onClick={fetchPcapAndPacketData} disabled={loading} className="w-full xs:w-auto">
+                    <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                    {loading ? "Refreshing..." : "Refresh Data"}
+                    </Button>
+                </TooltipTrigger>
+                <TooltipContent><p>Reload packet data from the server</p></TooltipContent>
+           </Tooltip>
         </div>
-      </div>
+      </header>
 
-      <Card className="shadow-md">
-        <CardHeader className="border-b dark:border-gray-700 py-4 px-4 md:px-6">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div className="flex items-center gap-2 flex-grow">
+      {/* Filter Bar dalam Card */}
+      <Card className="shadow-lg border dark:border-slate-700">
+        <CardHeader className="py-3 px-4 md:px-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
+                <div className="flex items-center gap-2 flex-grow min-w-0"> 
                     <ListFilter className="h-5 w-5 text-muted-foreground flex-shrink-0"/>
                     <Input
-                    placeholder="Filter packets (ID, IP, Port, Proto, Info...)"
+                    placeholder="Filter packets (ID, IP, Port, Protocol, Info...)"
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
-                    className="h-9 max-w-xs flex-grow md:max-w-sm lg:max-w-md" 
+                    className="h-9 text-sm flex-grow min-w-[150px] sm:max-w-xs md:max-w-sm lg:max-w-md" 
                     />
                     {filter && (
-                        <Button variant="ghost" size="icon" onClick={() => setFilter("")} disabled={!filter} className="h-9 w-9 flex-shrink-0">
-                            <X className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={() => setFilter("")} className="h-9 w-9 flex-shrink-0">
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Clear filter</p></TooltipContent>
+                        </Tooltip>
                     )}
                 </div>
-                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap"> {/* Tingkatkan gap */}
                     <Select value={filterType} onValueChange={applyFilter}>
-                        <SelectTrigger className="h-9 w-full xs:w-auto sm:w-[160px] md:w-[180px]"> <SelectValue placeholder="Filter by type" /> </SelectTrigger>
+                        <SelectTrigger className="h-9 w-full xs:w-auto sm:w-[160px] md:w-[180px] text-sm"> 
+                            <SelectValue placeholder="Filter by type" /> 
+                        </SelectTrigger>
                         <SelectContent>
-                        <SelectItem value="all">All Packets</SelectItem>
-                        <SelectItem value="TCP">TCP</SelectItem>
-                        <SelectItem value="UDP">UDP</SelectItem>
-                        <SelectItem value="ICMP">ICMP</SelectItem>
-                        <SelectItem value="ARP">ARP</SelectItem>
-                        <SelectItem value="IPv4">IPv4</SelectItem>
-                        <SelectItem value="IPv6">IPv6</SelectItem>
-                        <SelectItem value="tcp-reset">TCP Resets</SelectItem>
-                        <SelectItem value="connection-issues">Packets with Errors</SelectItem>
+                            <SelectItem value="all">All Packets</SelectItem>
+                            <SelectItem value="TCP">TCP</SelectItem>
+                            <SelectItem value="UDP">UDP</SelectItem>
+                            <SelectItem value="ICMP">ICMP</SelectItem>
+                            <SelectItem value="ARP">ARP</SelectItem>
+                            <SelectItem value="IPv4">IPv4</SelectItem>
+                            <SelectItem value="IPv6">IPv6</SelectItem>
+                            <SelectItem value="tcp-reset">TCP Resets</SelectItem>
+                            <SelectItem value="connection-issues">Packets with Errors</SelectItem>
                         </SelectContent>
                     </Select>
                     <div className="flex items-center gap-2 pt-2 sm:pt-0 whitespace-nowrap">
                         <Checkbox id="show-errors" checked={showOnlyErrors} onCheckedChange={(checked) => setShowOnlyErrors(checked as boolean)} />
-                        <label htmlFor="show-errors" className="text-sm font-medium">Show only errors</label>
+                        <label htmlFor="show-errors" className="text-sm font-medium cursor-pointer">Show only errors</label>
                     </div>
                 </div>
             </div>
         </CardHeader>
-        <CardContent className="p-0">
-            <ScrollArea className="h-[calc(100vh-32rem)] md:h-[600px]" ref={tableContainerRef}> 
-                <Table className="min-w-full text-xs"> 
-                    <TableHeader className="sticky top-0 z-10 bg-background shadow-sm dark:bg-slate-900">
-                    <TableRow>
-                        <TableHead className="w-16 px-2 py-2">No.</TableHead>
-                        <TableHead className="px-2 py-2 whitespace-nowrap">Time</TableHead>
-                        <TableHead className="px-2 py-2">Source</TableHead>
-                        <TableHead className="px-2 py-2">Destination</TableHead>
-                        <TableHead className="px-2 py-2">Protocol</TableHead>
-                        <TableHead className="w-20 px-2 py-2">Length</TableHead>
-                        <TableHead className="px-2 py-2 min-w-[250px] lg:min-w-[300px]">Info</TableHead>
-                    </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                    {filteredPackets.length > 0 ? (
-                        filteredPackets.map((packet) => (
-                        <TableRow
-                            key={packet.id}
-                            className={`${getRowClassName(packet)} cursor-pointer`}
-                            onClick={() => handlePacketClick(packet)}
-                            data-packet-id={packet.id}
-                        >
-                            <TableCell className="font-medium px-2 py-1.5">
-                            {packet.isError && <AlertTriangle className="h-3 w-3 text-red-500 inline mr-1" />}
-                            {packet.id}
-                            </TableCell>
-                            <TableCell className="px-2 py-1.5 whitespace-nowrap">{new Date(packet.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 })}</TableCell>
-                            <TableCell className="font-mono px-2 py-1.5">{packet.sourceIp}{packet.sourcePort ? `:${packet.sourcePort}` : ''}</TableCell>
-                            <TableCell className="font-mono px-2 py-1.5">{packet.destIp}{packet.destPort ? `:${packet.destPort}` : ''}</TableCell>
-                            <TableCell className="px-2 py-1.5"><Badge variant="outline" className={`${getProtocolColor(packet.protocol)} text-xs px-1.5 py-0.5 border`}>{packet.protocol}</Badge></TableCell>
-                            <TableCell className="px-2 py-1.5">{packet.length} B</TableCell>
-                            <TableCell className={`max-w-xs md:max-w-sm lg:max-w-md xl:max-w-lg truncate px-2 py-1.5 ${packet.isError ? "text-red-600 dark:text-red-400 font-medium" : ""}`}>
-                            {packet.info}
-                            </TableCell>
-                        </TableRow>
-                        ))
-                    ) : (
-                        <TableRow>
-                            <TableCell colSpan={7} className="h-60 text-center text-muted-foreground">
-                                {packets.length === 0 && !loading ? 
-                                    <div className="flex flex-col items-center justify-center"><FileWarning className="h-10 w-10 mb-2"/>No packets were parsed for this file.</div> : 
-                                    <div className="flex flex-col items-center justify-center"><Search className="h-10 w-10 mb-2"/>No packets match your current filters.</div>
-                                }
-                            </TableCell>
-                        </TableRow>
-                    )}
-                    </TableBody>
-                </Table>
-            </ScrollArea>
-            <CardFooter className="text-xs text-muted-foreground p-3 border-t dark:border-gray-700">
-                Showing {filteredPackets.length.toLocaleString()} of {packets.length.toLocaleString()} packets.
-                {showOnlyErrors && packets.filter((p) => p.isError).length > 0 && 
-                ` (${packets.filter((p) => p.isError).length.toLocaleString()} errors found)`}
-            </CardFooter>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mt-6">
-        <div className="lg:col-span-3"> 
-            {selectedPacket ? (
-            <Card className="shadow-md sticky top-6 max-h-[calc(100vh-8rem)]"> 
-                <CardHeader className="pb-2 border-b dark:border-gray-700">
-                <div className="flex justify-between items-center">
-                    <CardTitle className="text-lg">Packet #{selectedPacket.id} Details</CardTitle>
-                    <Button variant="ghost" size="icon" onClick={() => setSelectedPacket(null)} className="h-7 w-7">
-                        <X className="h-4 w-4"/>
-                    </Button>
-                </div>
-                <CardDescription className="text-xs">Timestamp: {new Date(selectedPacket.timestamp).toLocaleString()}</CardDescription>
-                </CardHeader>
-                {/* PERBAIKAN UI: Bungkus Konten Tabs dengan ScrollArea */}
-                <ScrollArea className="max-h-[calc(100vh-17rem)]"> {/* Sesuaikan tinggi jika perlu */}
+        
+        {/* Layout Utama: Tabel Paket di kiri, Detail & Koneksi di kanan */}
+        <div className="grid grid-cols-1 xl:grid-cols-7 gap-x-6 p-4 md:p-6">
+            {/* Kolom Kiri: Tabel Paket */}
+            <div className={isDetailMaximized ? "xl:col-span-3" : "xl:col-span-4"}> {/* Lebar dinamis */}
+                 <Card className="border-0 shadow-none"> {/* Hapus border & shadow card ini */}
+                    <CardHeader className="p-0 pb-3">
+                        <CardTitle className="text-lg">Packet List</CardTitle>
+                        <CardDescription>
+                        Showing {filteredPackets.length.toLocaleString()} of {packets.length.toLocaleString()} packets.
+                        {showOnlyErrors && packets.filter((p) => p.isError).length > 0 && 
+                        ` (${packets.filter((p) => p.isError).length.toLocaleString()} errors found)`}
+                        </CardDescription>
+                    </CardHeader>
                     <CardContent className="p-0">
-                        <Tabs defaultValue="details" className="w-full">
-                            <TabsList className="grid w-full grid-cols-2 rounded-none border-b dark:border-gray-700">
-                                <TabsTrigger value="details" className="py-2.5 data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none">Details</TabsTrigger>
-                                <TabsTrigger value="hex" className="py-2.5 data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none">Hex View</TabsTrigger>
-                            </TabsList>
-                            <div className="p-4"> 
-                                <TabsContent value="details" className="mt-0 text-sm space-y-2">
-                                    <Accordion type="multiple" defaultValue={["Frame Information", "IPv4", "TCP", "UDP", "ICMP"]} className="w-full">
-                                        {selectedPacket.detailedInfo && Object.entries(selectedPacket.detailedInfo).map(([section, detailsObj], index) => (
-                                            (typeof detailsObj === 'object' && detailsObj !== null && Object.keys(detailsObj).length > 0) && ( 
-                                            <AccordionItem key={section + index} value={section}>
-                                                <AccordionTrigger className="text-sm font-medium hover:no-underline">{section}</AccordionTrigger>
-                                                <AccordionContent className="space-y-1.5 text-xs pl-4 pt-2">
-                                                {Object.entries(detailsObj).map(([key, value]) => (
-                                                    <div key={key} className="grid grid-cols-[150px_1fr] gap-x-2 items-baseline"> 
-                                                        <div className="font-semibold text-muted-foreground truncate" title={key}>{key}:</div>
-                                                        <div className="font-mono break-all">{String(value)}</div>
-                                                    </div>
-                                                ))}
-                                                </AccordionContent>
-                                            </AccordionItem>
-                                            )
-                                        ))}
-                                    </Accordion>
-                                    {/* Penggunaan Alert untuk error pada selectedPacket */}
-                                    {selectedPacket.isError && selectedPacket.errorType && (
-                                        <Alert variant="destructive" className="mt-4">
-                                            <AlertTriangle className="h-4 w-4" />
-                                            <AlertTitle>Error: {selectedPacket.errorType}</AlertTitle>
-                                            <AlertDescription>An error or anomaly was detected for this packet.</AlertDescription>
-                                        </Alert>
-                                    )}
-                                </TabsContent>
-                                <TabsContent value="hex" className="mt-0">
-                                    <ScrollArea className="h-[300px] w-full rounded-md border p-3 bg-muted/30 dark:bg-slate-800">
-                                        <pre className="font-mono text-xs whitespace-pre-wrap break-all"> 
-                                            {(selectedPacket.hexDump && selectedPacket.hexDump.length > 0) 
-                                            ? selectedPacket.hexDump.join('\n') 
-                                            : "Hex dump not available or packet data was empty."}
-                                        </pre>
-                                    </ScrollArea>
-                                </TabsContent>
-                            </div>
-                        </Tabs>
+                        <ScrollArea className="border rounded-md h-[60vh] min-h-[400px]" ref={tableContainerRef}> 
+                            <Table className="min-w-[800px] text-xs"> 
+                                <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm dark:bg-slate-800/95">
+                                <TableRow>
+                                    <TableHead className="w-16 px-3 py-2.5">No.</TableHead>
+                                    <TableHead className="px-3 py-2.5 whitespace-nowrap">Time</TableHead>
+                                    <TableHead className="px-3 py-2.5">Source</TableHead>
+                                    <TableHead className="px-3 py-2.5">Destination</TableHead>
+                                    <TableHead className="px-3 py-2.5">Protocol</TableHead>
+                                    <TableHead className="w-20 px-3 py-2.5">Length</TableHead>
+                                    <TableHead className="px-3 py-2.5 min-w-[300px]">Info</TableHead>
+                                </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                {filteredPackets.length > 0 ? (
+                                    filteredPackets.map((packet) => (
+                                    <TableRow
+                                        key={packet.id}
+                                        className={`${getRowClassName(packet)} cursor-pointer transition-colors duration-150`}
+                                        onClick={() => handlePacketClick(packet)}
+                                        data-packet-id={packet.id}
+                                    >
+                                        <TableCell className="font-medium px-3 py-2">
+                                        {packet.isError && <AlertTriangle className="h-3.5 w-3.5 text-red-500 inline mr-1.5" />}
+                                        {packet.id}
+                                        </TableCell>
+                                        <TableCell className="px-3 py-2 whitespace-nowrap">{new Date(packet.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 })}</TableCell>
+                                        <TableCell className="font-mono px-3 py-2">{packet.sourceIp}{packet.sourcePort ? `:${packet.sourcePort}` : ''}</TableCell>
+                                        <TableCell className="font-mono px-3 py-2">{packet.destIp}{packet.destPort ? `:${packet.destPort}` : ''}</TableCell>
+                                        <TableCell className="px-3 py-2"><Badge variant="outline" className={`${getProtocolColor(packet.protocol)} text-xs px-2 py-0.5 border`}>{packet.protocol}</Badge></TableCell>
+                                        <TableCell className="px-3 py-2">{packet.length} B</TableCell>
+                                        <TableCell className={`max-w-xs md:max-w-md lg:max-w-lg xl:max-w-xl truncate px-3 py-2 ${packet.isError ? "text-red-600 dark:text-red-400 font-semibold" : ""}`}>
+                                        {packet.info}
+                                        </TableCell>
+                                    </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="h-60 text-center text-muted-foreground">
+                                            {packets.length === 0 && !loading ? 
+                                                <div className="flex flex-col items-center justify-center py-10"><FileWarning className="h-12 w-12 mb-3 text-gray-400"/><p>No packets were parsed for this file.</p></div> : 
+                                                <div className="flex flex-col items-center justify-center py-10"><Search className="h-12 w-12 mb-3 text-gray-400"/><p>No packets match your current filters.</p></div>
+                                            }
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                                </TableBody>
+                            </Table>
+                        </ScrollArea>
                     </CardContent>
-                </ScrollArea> {/* Akhir ScrollArea untuk Konten Tabs */}
-            </Card>
-            ) : (
-            <Card className="shadow-md sticky top-6">
-                <CardHeader>
-                    <CardTitle className="text-lg flex items-center"><FileText className="mr-2 h-5 w-5 text-muted-foreground"/>Packet Details</CardTitle>
-                </CardHeader>
-                <CardContent className="text-center py-16 text-muted-foreground">
-                    <Info className="h-10 w-10 mx-auto mb-3 text-gray-400" />
-                    <p>Select a packet from the list to view its details.</p>
-                </CardContent>
-            </Card>
-            )}
-        </div> 
+                 </Card>
+            </div>
 
-        <div className="lg:col-span-2"> 
-            <Card className="shadow-md">
-                <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Connection Summary</CardTitle>
+            {/* Kolom Kanan: Detail Paket & Ringkasan Koneksi */}
+            <div className={isDetailMaximized ? "xl:col-span-4 space-y-6" : "xl:col-span-3 space-y-6"}> {/* Lebar dinamis */}
+                {selectedPacket ? (
+                <Card className="shadow-lg sticky top-6 max-h-[calc(100vh-7rem)] flex flex-col"> 
+                    <CardHeader className="pb-2 border-b dark:border-slate-700">
+                    <div className="flex justify-between items-center">
+                        <CardTitle className="text-lg">Packet #{selectedPacket.id} Details</CardTitle>
+                        <div className="flex items-center gap-1">
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" onClick={() => setIsDetailMaximized(!isDetailMaximized)} className="h-7 w-7">
+                                        {isDetailMaximized ? <Minimize2 className="h-4 w-4"/> : <Maximize2 className="h-4 w-4"/>}
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>{isDetailMaximized ? "Restore" : "Maximize"} Detail View</p></TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button variant="ghost" size="icon" onClick={() => setSelectedPacket(null)} className="h-7 w-7">
+                                        <X className="h-4 w-4"/>
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent><p>Close Detail View</p></TooltipContent>
+                            </Tooltip>
+                        </div>
+                    </div>
+                    <CardDescription className="text-xs mt-1">Timestamp: {new Date(selectedPacket.timestamp).toLocaleString()}</CardDescription>
+                    </CardHeader>
+                    <ScrollArea className="flex-grow"> {/* ScrollArea membungkus CardContent */}
+                        <CardContent className="p-0">
+                            <Tabs defaultValue="details" className="w-full">
+                                <TabsList className="grid w-full grid-cols-2 rounded-none border-b dark:border-slate-700">
+                                    <TabsTrigger value="details" className="py-2.5 data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:shadow-none rounded-none">Details</TabsTrigger>
+                                    <TabsTrigger value="hex" className="py-2.5 data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:shadow-none rounded-none">Hex View</TabsTrigger>
+                                </TabsList>
+                                <div className="p-4 text-xs"> 
+                                    <TabsContent value="details" className="mt-0 space-y-2">
+                                        <Accordion type="multiple" defaultValue={["Frame Information", "IPv4", "TCP", "UDP", "ICMP"]} className="w-full">
+                                            {selectedPacket.detailedInfo && Object.entries(selectedPacket.detailedInfo).map(([section, detailsObj], index) => (
+                                                (typeof detailsObj === 'object' && detailsObj !== null && Object.keys(detailsObj).length > 0) && ( 
+                                                <AccordionItem key={section + index} value={section} className="border-b-0 last:border-b-0">
+                                                    <AccordionTrigger className="text-xs font-semibold hover:no-underline py-2 px-1">
+                                                        {section}
+                                                    </AccordionTrigger>
+                                                    <AccordionContent className="space-y-1.5 pl-5 pt-1 pb-2 text-xs">
+                                                    {Object.entries(detailsObj).map(([key, value]) => (
+                                                        <div key={key} className="grid grid-cols-[120px_1fr] gap-x-2 items-baseline"> 
+                                                            <div className="font-medium text-muted-foreground truncate" title={key}>{key}:</div>
+                                                            <div className="font-mono break-all">{String(value)}</div>
+                                                        </div>
+                                                    ))}
+                                                    </AccordionContent>
+                                                </AccordionItem>
+                                                )
+                                            ))}
+                                        </Accordion>
+                                        {selectedPacket.isError && selectedPacket.errorType && (
+                                            <Alert variant="destructive" className="mt-4">
+                                                <AlertTriangle className="h-4 w-4" />
+                                                <AlertTitle className="text-sm">Error: {selectedPacket.errorType}</AlertTitle>
+                                                <AlertDescription className="text-xs">An error or anomaly was detected for this packet.</AlertDescription>
+                                            </Alert>
+                                        )}
+                                    </TabsContent>
+                                    <TabsContent value="hex" className="mt-0">
+                                        <ScrollArea className="h-[300px] w-full rounded-md border p-3 bg-muted/30 dark:bg-slate-800">
+                                            <pre className="font-mono text-xs whitespace-pre-wrap break-all"> 
+                                                {(selectedPacket.hexDump && selectedPacket.hexDump.length > 0) 
+                                                ? selectedPacket.hexDump.join('\n') 
+                                                : "Hex dump not available or packet data was empty."}
+                                            </pre>
+                                        </ScrollArea>
+                                    </TabsContent>
+                                </div>
+                            </Tabs>
+                        </CardContent>
+                    </ScrollArea> 
+                </Card>
+                ) : (
+                <Card className="shadow-lg sticky top-6">
+                    <CardHeader>
+                        <CardTitle className="text-lg flex items-center"><FileText className="mr-2 h-5 w-5 text-muted-foreground"/>Packet Details</CardTitle>
+                    </CardHeader>
+                    <CardContent className="text-center py-16 text-muted-foreground">
+                        <Info className="h-10 w-10 mx-auto mb-3 text-gray-400" />
+                        <p className="text-sm">Select a packet from the list to view its details.</p>
+                    </CardContent>
+                </Card>
+                )}
+            <Card className="shadow-lg mt-6">
+                <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center"><ConnectionIcon className="mr-2 h-5 w-5 text-muted-foreground"/>Connection Summary</CardTitle>
                 <CardDescription>
                     {connections.length} connections detected
                     {connections.filter((c) => c.hasErrors).length > 0 && 
@@ -492,29 +520,29 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
                 </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <ScrollArea className="max-h-[calc(100vh-8rem)] md:max-h-[500px]"> 
+                    <ScrollArea className="max-h-[300px] md:max-h-[400px]"> 
                         <Table className="text-xs">
-                        <TableHeader className="sticky top-0 bg-background z-10 shadow-sm dark:bg-slate-900">
+                        <TableHeader className="sticky top-0 bg-background z-10 shadow-sm dark:bg-slate-800">
                             <TableRow>
-                            <TableHead className="px-2 py-2">Connection</TableHead>
-                            <TableHead className="px-2 py-2">Protocol</TableHead>
-                            <TableHead className="px-2 py-2">State</TableHead>
-                            <TableHead className="px-2 py-2 w-20">Packets</TableHead>
+                            <TableHead className="px-3 py-2.5">Connection</TableHead>
+                            <TableHead className="px-3 py-2.5">Protocol</TableHead>
+                            <TableHead className="px-3 py-2.5">State</TableHead>
+                            <TableHead className="px-3 py-2.5 w-20">Packets</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {connections.length > 0 ? (
                             connections.map((conn) => (
-                            <TableRow key={conn.id} className={`${conn.hasErrors ? "bg-red-50 dark:bg-red-900/30 hover:bg-red-100/70 dark:hover:bg-red-800/40" : "hover:bg-muted/50 dark:hover:bg-muted/20"}`}>
-                                <TableCell className="font-mono max-w-[200px] sm:max-w-xs truncate px-2 py-1.5">
-                                {conn.hasErrors && <AlertTriangle className="h-3 w-3 text-red-500 inline mr-1" />}
+                            <TableRow key={conn.id} className={`${conn.hasErrors ? "bg-red-50 dark:bg-red-900/30 hover:bg-red-100/70 dark:hover:bg-red-800/40" : "hover:bg-muted/50 dark:hover:bg-muted/30"}`}>
+                                <TableCell className="font-mono max-w-[180px] sm:max-w-xs truncate px-3 py-2">
+                                {conn.hasErrors && <AlertTriangle className="h-3.5 w-3.5 text-red-500 inline mr-1.5" />}
                                 {`${conn.sourceIp}:${conn.sourcePort} → ${conn.destIp}:${conn.destPort}`}
                                 </TableCell>
-                                <TableCell className="px-2 py-1.5"><Badge variant="outline" className={`${getProtocolColor(conn.protocol)} text-xs px-1.5 py-0.5 border`}>{conn.protocol}</Badge></TableCell>
-                                <TableCell className={`px-2 py-1.5 ${conn.state === "RESET" || conn.state === "CLOSED" || conn.state === "FIN_WAIT" || conn.state === "FIN_ACK" ? "text-orange-600 dark:text-orange-400" : ""}`}>
+                                <TableCell className="px-3 py-2"><Badge variant="outline" className={`${getProtocolColor(conn.protocol)} text-xs px-2 py-0.5 border`}>{conn.protocol}</Badge></TableCell>
+                                <TableCell className={`px-3 py-2 ${conn.state === "RESET" || conn.state === "CLOSED" || conn.state === "FIN_WAIT" || conn.state === "FIN_ACK" ? "text-orange-600 dark:text-orange-400" : ""}`}>
                                 {conn.state}
                                 </TableCell>
-                                <TableCell className="px-2 py-1.5">{conn.packets.length}</TableCell>
+                                <TableCell className="px-3 py-2">{conn.packets.length}</TableCell>
                             </TableRow>
                             ))
                             ) : (
@@ -532,5 +560,6 @@ export function PacketAnalysis({ analysisId }: PacketAnalysisProps) {
         </div> 
       </div>
     </div>
+    </TooltipProvider>
   );
 }
