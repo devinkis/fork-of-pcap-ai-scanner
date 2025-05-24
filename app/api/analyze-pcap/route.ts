@@ -6,7 +6,7 @@ import PcapParser from 'pcap-parser';
 import { Readable } from 'stream';
 
 const MAX_SAMPLES_FOR_AI = 10;
-const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; // Tingkatkan jika perlu, perhatikan performa
+const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; // Anda bisa menaikkan ini jika performa memungkinkan
 
 async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string): Promise<any> {
   console.log(`[PARSE_PCAP_PARSER_STREAM] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
@@ -26,7 +26,6 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
     const samplePacketsForAI: Array<any> = [];
     let promiseResolved = false;
     
-    // --- TAMBAHKAN INI UNTUK MENGHITUNG IP TRAFFIC ---
     const ipTraffic: { [ip: string]: { sentPackets: number, receivedPackets: number, sentBytes: number, receivedBytes: number, totalPackets: number, totalBytes: number } } = {};
 
     return new Promise((resolve, reject) => {
@@ -59,36 +58,50 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
             if (packet.data && packet.data.length >= 14) { // Ethernet Header
                 const etherType = packet.data.readUInt16BE(12);
                 if (etherType === 0x0800) { // IPv4
-                    guessedProtocol = "IPv4";
+                    // guessedProtocol = "IPv4"; // Kita akan set guessedProtocol ke L4 jika ada
                     if (packet.data.length >= 14 + 20) { // Min IPv4 Header
-                        const ipHeader = packet.data.slice(14, 14 + ((packet.data[14] & 0x0F) * 4)); // Panjang header IP dinamis
-                        sourceIp = `${ipHeader[12]}.${ipHeader[13]}.${ipHeader[14]}.${ipHeader[15]}`;
-                        destIp = `${ipHeader[16]}.${ipHeader[17]}.${ipHeader[18]}.${ipHeader[19]}`;
-                        const ipProtocolField = ipHeader[9];
+                        const ipHeaderStart = 14;
+                        const ipHeaderIHL = (packet.data[ipHeaderStart] & 0x0F);
+                        const ipHeaderLength = ipHeaderIHL * 4;
                         
-                        if (ipProtocolField === 6) guessedProtocol = "TCP"; // Tidak lagi "(over IPv4)"
-                        else if (ipProtocolField === 17) guessedProtocol = "UDP";
-                        else if (ipProtocolField === 1) guessedProtocol = "ICMP";
-                        else guessedProtocol = `IPv4_Proto_${ipProtocolField}`; // Protokol IP lain
-                        packetInfo = `IPv4 ${sourceIp} -> ${destIp} (${guessedProtocol})`;
+                        if (packet.data.length >= ipHeaderStart + ipHeaderLength) {
+                            const ipHeader = packet.data.slice(ipHeaderStart, ipHeaderStart + ipHeaderLength);
+                            sourceIp = `${ipHeader[12]}.${ipHeader[13]}.${ipHeader[14]}.${ipHeader[15]}`;
+                            destIp = `${ipHeader[16]}.${ipHeader[17]}.${ipHeader[18]}.${ipHeader[19]}`;
+                            const ipProtocolField = ipHeader[9];
+                            
+                            let transportProtocolName = `IPProto_${ipProtocolField}`;
+                            if (ipProtocolField === 6) transportProtocolName = "TCP";
+                            else if (ipProtocolField === 17) transportProtocolName = "UDP";
+                            else if (ipProtocolField === 1) transportProtocolName = "ICMP";
+                            
+                            guessedProtocol = transportProtocolName; // Set ke L4 atau Proto IP
+                            packetInfo = `IPv4 ${sourceIp} -> ${destIp} (${guessedProtocol})`;
+                        } else {
+                             guessedProtocol = "IPv4_Truncated";
+                             packetInfo = `IPv4 (Truncated Header)`;
+                        }
+                    } else {
+                        guessedProtocol = "IPv4_Short";
+                        packetInfo = `IPv4 (Too Short for Full Header)`;
                     }
                 } else if (etherType === 0x86DD) { // IPv6
                     guessedProtocol = "IPv6";
-                    // Parsing IPv6 lebih kompleks, untuk sekarang kita tandai saja
                     packetInfo = `IPv6 (further parsing needed)`;
                 } else if (etherType === 0x0806) { // ARP
                     guessedProtocol = "ARP";
                     packetInfo = `ARP Packet`;
                 } else {
                     guessedProtocol = `EtherType_0x${etherType.toString(16)}`;
+                    packetInfo = `EtherType 0x${etherType.toString(16)}`;
                 }
             }
         } catch (e: any) {
             console.warn(`[PARSE_PCAP_PARSER_STREAM] Error decoding individual packet ${packetCounter}: ${e.message}`);
+            packetInfo = `Error decoding: ${e.message}`;
         }
         protocolGuessStats[guessedProtocol] = (protocolGuessStats[guessedProtocol] || 0) + 1;
 
-        // --- LOGIKA UNTUK MENGHITUNG IP TRAFFIC ---
         if (sourceIp !== "N/A") {
             if (!ipTraffic[sourceIp]) ipTraffic[sourceIp] = { sentPackets: 0, receivedPackets: 0, sentBytes: 0, receivedBytes: 0, totalPackets: 0, totalBytes: 0 };
             ipTraffic[sourceIp].sentPackets++;
@@ -103,8 +116,6 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
             ipTraffic[destIp].totalPackets++;
             ipTraffic[destIp].totalBytes += packetLength;
         }
-        // --- AKHIR LOGIKA IP TRAFFIC ---
-
 
         if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) {
           samplePacketsForAI.push({
@@ -125,42 +136,44 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
              parser.removeAllListeners('end');
              parser.removeAllListeners('error');
           }
-          resolveResults(); 
+          resolveResults();
+          return; 
         }
       });
 
       const resolveResults = () => {
+        if (promiseResolved) return; // Pastikan hanya resolve sekali
+        promiseResolved = true;
+
         const topProtocols = Object.entries(protocolGuessStats)
             .sort(([,a],[,b]) => b-a)
-            .slice(0, 5)
+            .slice(0, 5) // Ambil 5 protokol teratas
             .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {});
 
-        // --- MEMBUAT TOP TALKERS DARI IP TRAFFIC ---
         const calculatedTopTalkers = Object.entries(ipTraffic)
             .map(([ip, data]) => ({
                 ip,
-                packets: data.totalPackets, // Menggunakan total packets (sent + received untuk IP tersebut)
-                bytes: data.totalBytes,     // Menggunakan total bytes
+                packets: data.totalPackets, 
+                bytes: data.totalBytes,    
                 sentPackets: data.sentPackets,
                 receivedPackets: data.receivedPackets,
                 sentBytes: data.sentBytes,
                 receivedBytes: data.receivedBytes
             }))
-            .sort((a, b) => b.packets - a.packets) // Urutkan berdasarkan total paket
-            .slice(0, 5); // Ambil 5 teratas
-        // --- AKHIR MEMBUAT TOP TALKERS ---
+            .sort((a, b) => b.packets - a.packets) 
+            .slice(0, 5); 
 
-        resolveOnce({
+        resolve({
           statistics: {
             totalPacketsInFile: packetCounter, 
             packetsProcessedForStats: packetCounter, 
             protocols: topProtocols,
-            topTalkers: calculatedTopTalkers.length > 0 ? calculatedTopTalkers : [{ip: "No IP traffic identified", packets: 0, bytes: 0}], // Gunakan hasil kalkulasi
+            topTalkers: calculatedTopTalkers.length > 0 ? calculatedTopTalkers : [{ip: "No identifiable IP traffic", packets: 0, bytes: 0, sentPackets:0, receivedPackets:0, sentBytes:0, receivedBytes:0}],
             anomalyScore: Math.floor(Math.random() * 30) + 10, 
           },
           samplePackets: samplePacketsForAI,
-          potentialThreatsIdentified: ["Basic scan by pcap-parser, deeper analysis pending."],
-          dataExfiltrationSigns: "Not determined from basic parsing.",
+          potentialThreatsIdentified: ["Basic scan by pcap-parser, requires deeper payload inspection for detailed threats."],
+          dataExfiltrationSigns: "Not determined from basic header parsing.",
         });
       };
 
@@ -180,10 +193,6 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
   }
 }
 
-// ... (Sisa kode: OpenRouter client, extractJsonFromString, dan fungsi POST handler tetap sama)
-// Pastikan fungsi parsePcapFileWithReadableStream dipanggil di dalam POST handler.
-// (Kode untuk openRouterProvider, extractJsonFromString, dan POST handler tidak berubah dari versi terakhir)
-
 const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
 const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct"; 
@@ -201,7 +210,6 @@ if (openRouterApiKey && openRouterApiKey.trim() !== "") {
 }
 
 function extractJsonFromString(text: string): string | null {
-    // ... (fungsi ini tetap sama)
     if (!text || text.trim() === "") {
         console.warn("[EXTRACT_JSON] AI returned empty or whitespace-only text.");
         return null; 
@@ -283,7 +291,7 @@ export async function POST(request: NextRequest) {
       ...extractedPcapData,
     };
 
-    console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisIdFromBody}, Stats:`, JSON.stringify(dataForAI.statistics, null, 2)); // Log statistik yang dikirim ke AI
+    console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisIdFromBody}, Stats:`, JSON.stringify(dataForAI.statistics, null, 2));
 
     const { text: rawAnalysisText } = await generateText({
       model: openRouterProvider(modelNameFromEnv as any),
