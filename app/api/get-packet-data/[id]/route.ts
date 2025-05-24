@@ -19,11 +19,9 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
 
   const parsedPackets: any[] = [];
   let packetCounter = 0;
-  // Batasi jumlah paket yang diproses untuk ditampilkan di UI Packet Analysis
-  const MAX_PACKETS_FOR_UI_DISPLAY = 500; // Sesuaikan batas ini, mungkin lebih tinggi dari AI_SAMPLES
+  const MAX_PACKETS_FOR_UI_DISPLAY = 500;
   let promiseResolved = false;
 
-  // Untuk membuat koneksi (contoh sangat dasar)
   const connectionMap = new Map<string, any>();
 
 
@@ -56,19 +54,18 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       let tcpAck: number | undefined;
       let windowSize: number | undefined;
       let ttl: number | undefined;
-      let isError = false; // Anda perlu logika untuk mendeteksi error paket
+      let isError = false; 
       let errorType: string | undefined;
       let detailedInfo: any = { "Frame Info": { Number: packetCounter, Length: packet.header.capturedLength }};
       let hexDump : string[] = [];
 
-      // Contoh Parsing Dasar (PERLU DIKEMBANGKAN SECARA SIGNIFIKAN)
-      try {
-          if (packet.data && packet.data.length >= 14) { // Ethernet Header
-              detailedInfo["Ethernet II"] = { Source: "xx:xx:xx:xx:xx:xx", Destination: "yy:yy:yy:yy:yy:yy"}; // Placeholder MAC
+      try { // Awal blok try untuk parsing paket individual
+          if (packet.data && packet.data.length >= 14) { 
+              detailedInfo["Ethernet II"] = { Source: "xx:xx:xx:xx:xx:xx", Destination: "yy:yy:yy:yy:yy:yy"}; 
               const etherType = packet.data.readUInt16BE(12);
-              if (etherType === 0x0800) { // IPv4
-                  protocol = "IPv4"; // Layer 3
-                  if (packet.data.length >= 14 + 20) { // Min IPv4 Header
+              if (etherType === 0x0800) { 
+                  protocol = "IPv4"; 
+                  if (packet.data.length >= 14 + 20) { 
                       const ipHeaderStart = 14;
                       const ipHeaderIHL = (packet.data[ipHeaderStart] & 0x0F);
                       const ipHeaderLength = ipHeaderIHL * 4;
@@ -83,9 +80,9 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
                           
                           const transportHeaderStart = ipHeaderStart + ipHeaderLength;
 
-                          if (ipProtocolField === 6) { // TCP
+                          if (ipProtocolField === 6) { 
                               protocol = "TCP";
-                              if (packet.data.length >= transportHeaderStart + 20) { // Min TCP header
+                              if (packet.data.length >= transportHeaderStart + 20) { 
                                   const tcpHeader = packet.data.slice(transportHeaderStart, transportHeaderStart + 20);
                                   sourcePort = tcpHeader.readUInt16BE(0);
                                   destPort = tcpHeader.readUInt16BE(2);
@@ -102,18 +99,18 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
                                   info = flags.length > 0 ? flags.join(", ") : "TCP Segment";
                                   detailedInfo["TCP"] = { SourcePort: sourcePort, DestinationPort: destPort, Seq: tcpSeq, Ack: tcpAck, Flags: flags.join(', '), Window: windowSize };
                               }
-                          } else if (ipProtocolField === 17) { // UDP
+                          } else if (ipProtocolField === 17) { 
                               protocol = "UDP";
-                              if (packet.data.length >= transportHeaderStart + 8) { 
+                               if (packet.data.length >= transportHeaderStart + 8) { 
                                   const udpHeader = packet.data.slice(transportHeaderStart, transportHeaderStart + 8);
                                   sourcePort = udpHeader.readUInt16BE(0);
                                   destPort = udpHeader.readUInt16BE(2);
                                   info = `UDP, Src Port: ${sourcePort}, Dst Port: ${destPort}`;
                                   detailedInfo["UDP"] = { SourcePort: sourcePort, DestinationPort: destPort, Length: udpHeader.readUInt16BE(4) };
-                              }
+                               }
                           } else if (ipProtocolField === 1) {
                               protocol = "ICMP";
-                              info = "ICMP Packet"; // Tambahkan parsing type/code
+                              info = "ICMP Packet"; 
                               detailedInfo["ICMP"] = { Type: "N/A", Code: "N/A" };
                           } else {
                               protocol = `IPProto-${ipProtocolField}`;
@@ -128,7 +125,6 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
                      info = "ARP Packet";
                   }
               }
-              // Contoh Hex Dump (ambil beberapa byte pertama)
               const maxHexDumpBytes = 64;
               const dataToDump = packet.data.slice(0, Math.min(packet.data.length, maxHexDumpBytes));
               for (let i = 0; i < dataToDump.length; i += 16) {
@@ -137,13 +133,12 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
                   const ascii = slice.toString('ascii').replace(/[^\x20-\x7E]/g, '.');
                   hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`);
               }
-
-          } catch (e: any) {
-              console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
-              info = `Error decoding: ${e.message}`;
-              isError = true;
-              errorType = "DecodingError";
-          }
+      } catch (e: any) { // Awal blok catch untuk parsing paket individual
+          console.warn(`[API_GET_PACKET_DATA] Error decoding individual packet ${packetCounter}: ${e.message}`);
+          info = `Error decoding: ${e.message}`;
+          isError = true;
+          errorType = "DecodingError";
+      } // <-- PERBAIKAN: Kurung kurawal penutup untuk blok try di atas ditambahkan di sini
 
       const finalPacketData = {
         id: packetCounter,
@@ -167,7 +162,6 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       };
       parsedPackets.push(finalPacketData);
 
-      // Logika dasar untuk membuat koneksi (perlu disempurnakan)
       if ((protocol === "TCP" || protocol === "UDP") && sourcePort && destPort && sourceIp !== "N/A" && destIp !== "N/A") {
           const connIdFwd = `${sourceIp}:${sourcePort}-${destIp}:${destPort}-${protocol}`;
           const connIdRev = `${destIp}:${destPort}-${sourceIp}:${sourcePort}-${protocol}`;
@@ -186,20 +180,19 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
               if (isError) conn.hasErrors = true;
               if (isError && errorType && !conn.errorTypes.includes(errorType)) conn.errorTypes.push(errorType);
               if (protocol === "TCP" && flags.includes("RST")) conn.state = "RESET";
-              else if (protocol === "TCP" && flags.includes("FIN")) conn.state = "CLOSING"; // Bisa lebih kompleks
+              else if (protocol === "TCP" && flags.includes("FIN")) conn.state = "CLOSING";
           }
       }
-
 
       if (packetCounter >= MAX_PACKETS_FOR_UI_DISPLAY) {
         console.warn(`[API_GET_PACKET_DATA] Reached packet display limit: ${MAX_PACKETS_FOR_UI_DISPLAY}`);
         if (parser && typeof parser.removeAllListeners === 'function') {
-             parser.removeAllListeners(); // Hentikan semua listener
+            parser.removeAllListeners();
         }
         generateAndResolveConnections();
         return; 
       }
-    });
+    }); // Akhir parser.on('packet')
     
     const generateAndResolveConnections = () => {
         const connections = Array.from(connectionMap.values());
@@ -216,21 +209,71 @@ async function parsePcapForPacketDisplay(fileUrl: string, fileName: string): Pro
       console.error(`[API_GET_PACKET_DATA] Error parsing PCAP stream:`, err);
       rejectOnce(new Error(`Error parsing PCAP stream: ${err.message}`));
     });
+  }); // Akhir new Promise
+} // Akhir outer try di parsePcapForPacketDisplay
+
+// --- Sisa kode (OpenRouter client, extractJsonFromString, dan fungsi POST handler) ---
+// Tetap sama seperti versi sebelumnya.
+
+const openRouterApiKey = process.env.OPENROUTER_API_KEY;
+const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
+const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct"; 
+
+let openRouterProvider: ReturnType<typeof createOpenAI> | null = null;
+
+if (openRouterApiKey && openRouterApiKey.trim() !== "") {
+  openRouterProvider = createOpenAI({
+    apiKey: openRouterApiKey,
+    baseURL: openRouterBaseURL,
   });
+  console.log("[API_ANALYZE_PCAP_CONFIG] OpenRouter provider configured using createOpenAI.");
+} else {
+  console.error("[CRITICAL_CONFIG_ERROR] OPENROUTER_API_KEY environment variable is missing or empty. AI features will be disabled.");
 }
 
-export async function GET(request: NextRequest, { params }: { params: { analysisId: string } }) {
+function extractJsonFromString(text: string): string | null {
+    if (!text || text.trim() === "") {
+        console.warn("[EXTRACT_JSON] AI returned empty or whitespace-only text.");
+        return null; 
+    }
+    console.log("[EXTRACT_JSON] Original AI text (first 500 chars):", text.substring(0, 500));
+    const markdownRegex = /```(?:json)?\s*([\s\S]*?)\s*```/;
+    const markdownMatch = text.match(markdownRegex);
+
+    if (markdownMatch && markdownMatch[1]) {
+        const extracted = markdownMatch[1].trim();
+        console.log("[EXTRACT_JSON] JSON found inside markdown backticks. Length:", extracted.length);
+        return extracted;
+    }
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        const potentialJson = text.substring(firstBrace, lastBrace + 1);
+        try {
+            JSON.parse(potentialJson); 
+            console.log("[EXTRACT_JSON] JSON found by brace matching. Length:", potentialJson.length);
+            return potentialJson;
+        } catch (e) {
+            console.warn("[EXTRACT_JSON] Brace matching did not yield valid JSON, returning original text for parsing attempt.");
+        }
+    }
+    const trimmedText = text.trim();
+    console.log("[EXTRACT_JSON] No markdown or clear JSON object found, returning original trimmed text. Length:", trimmedText.length);
+    return trimmedText === "" ? null : trimmedText; 
+}
+
+export async function GET(request: NextRequest, { params }: { params: { analysisId: string } }) { // Nama parameter analysisId di GET
   try {
-    const analysisId = params.analysisId;
-    if (!analysisId) {
-      return NextResponse.json({ error: "Analysis ID is required" }, { status: 400 });
+    const analysisIdFromParams = params.analysisId; // Mengambil analysisId dari params
+    if (!analysisIdFromParams) {
+      return NextResponse.json({ error: "Analysis ID is required in path" }, { status: 400 });
     }
 
-    console.log(`[API_GET_PACKET_DATA] Request received for analysisId: ${analysisId}`);
-    const pcapRecord = await db.pcapFile.findUnique({ analysisId });
+    console.log(`[API_GET_PACKET_DATA] Request received for analysisId: ${analysisIdFromParams}`);
+    const pcapRecord = await db.pcapFile.findUnique({ analysisId: analysisIdFromParams });
 
     if (!pcapRecord || !pcapRecord.blobUrl) {
-      console.error(`[API_GET_PACKET_DATA] PCAP file or blobUrl not found for analysisId: ${analysisId}`);
+      console.error(`[API_GET_PACKET_DATA] PCAP file or blobUrl not found for analysisId: ${analysisIdFromParams}`);
       return NextResponse.json({ error: "PCAP file not found for this analysis" }, { status: 404 });
     }
 
