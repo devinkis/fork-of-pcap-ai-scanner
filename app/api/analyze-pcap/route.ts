@@ -5,10 +5,8 @@ import db from "@/lib/neon-db";
 import PcapParser from 'pcap-parser';
 import { Readable } from 'stream';
 
-// --- Definisi Konstanta di Level Modul ---
 const MAX_SAMPLES_FOR_AI = 10;
 const MAX_PACKETS_TO_PROCESS_FOR_STATS = 2000;
-// --- Akhir Definisi Konstanta ---
 
 async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string): Promise<any> {
   console.log(`[PARSE_PCAP_PARSER_STREAM] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
@@ -26,8 +24,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
     let packetCounter = 0;
     const protocolGuessStats: { [key: string]: number } = {'UNKNOWN_L3': 0};
     const samplePacketsForAI: Array<any> = [];
-    // MAX_SAMPLES_FOR_AI dan MAX_PACKETS_TO_PROCESS_FOR_STATS sekarang diakses dari scope luar
-    let promiseResolved = false; 
+    let promiseResolved = false;
 
     return new Promise((resolve, reject) => {
       const resolveOnce = (data: any) => {
@@ -78,7 +75,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
         }
         protocolGuessStats[guessedProtocol] = (protocolGuessStats[guessedProtocol] || 0) + 1;
 
-        if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) { // Menggunakan konstanta dari scope luar
+        if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI) {
           samplePacketsForAI.push({
             no: packetCounter,
             timestamp: timestamp,
@@ -90,14 +87,14 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
           });
         }
 
-        if (packetCounter >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) { // Menggunakan konstanta dari scope luar
+        if (packetCounter >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) {
           console.warn(`[PARSE_PCAP_PARSER_STREAM] Reached packet processing limit for stats: ${MAX_PACKETS_TO_PROCESS_FOR_STATS} for file ${fileName}`);
           if (parser && typeof parser.removeAllListeners === 'function') {
              parser.removeAllListeners('packet');
              parser.removeAllListeners('end');
              parser.removeAllListeners('error');
           }
-          resolveResults();
+          resolveResults(); // Memanggil resolveResults di sini
         }
       });
 
@@ -107,7 +104,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
             .slice(0, 5)
             .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {});
 
-        resolveOnce({
+        resolveOnce({ // Menggunakan resolveOnce
           statistics: {
             totalPacketsInFile: packetCounter, 
             packetsProcessedForStats: packetCounter, 
@@ -128,7 +125,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
 
       parser.on('error', (err: Error) => {
         console.error(`[PARSE_PCAP_PARSER_STREAM] Error reading PCAP stream for ${fileName}:`, err);
-        rejectOnce(new Error(`Error reading PCAP stream: ${err.message}`));
+        rejectOnce(new Error(`Error reading PCAP stream: ${err.message}`)); // Menggunakan rejectOnce
       });
     }); 
   } catch (error) {
@@ -136,8 +133,6 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
     throw error; 
   }
 }
-// --- Akhir dari implementasi parsePcapFile ---
-
 
 const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
@@ -155,32 +150,45 @@ if (openRouterApiKey && openRouterApiKey.trim() !== "") {
   console.error("[CRITICAL_CONFIG_ERROR] OPENROUTER_API_KEY environment variable is missing or empty. AI features will be disabled.");
 }
 
+// Fungsi untuk membersihkan string JSON dari markdown backticks dan teks lain
 function extractJsonFromString(text: string): string | null {
-    console.log("[EXTRACT_JSON] Original AI text length:", text.length);
-    const regex = /```(?:json)?\s*([\s\S]*?)\s*```/;
-    const match = text.match(regex);
+  if (!text || text.trim() === "") {
+    console.warn("[EXTRACT_JSON] AI returned empty or whitespace-only text.");
+    return null; // Kembalikan null jika input kosong
+  }
+  console.log("[EXTRACT_JSON] Original AI text (first 500 chars):", text.substring(0, 500));
+
+  // Mencari ```json ... ``` atau ``` ... ```
+  const markdownRegex = /```(?:json)?\s*([\s\S]*?)\s*```/;
+  const markdownMatch = text.match(markdownRegex);
+
+  if (markdownMatch && markdownMatch[1]) {
+    const extracted = markdownMatch[1].trim();
+    console.log("[EXTRACT_JSON] JSON found inside markdown backticks. Length:", extracted.length);
+    return extracted;
+  }
   
-    if (match && match[1]) {
-      console.log("[EXTRACT_JSON] JSON found inside markdown backticks.");
-      return match[1].trim();
+  // Jika tidak ada backticks, coba cari '{' pertama dan '}' terakhir sebagai upaya terbaik
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const potentialJson = text.substring(firstBrace, lastBrace + 1);
+    // Lakukan validasi sederhana apakah ini terlihat seperti JSON sebelum mengembalikan
+    try {
+        JSON.parse(potentialJson); // Coba parse, jika berhasil, ini mungkin JSON
+        console.log("[EXTRACT_JSON] JSON found by brace matching. Length:", potentialJson.length);
+        return potentialJson;
+    } catch (e) {
+        console.warn("[EXTRACT_JSON] Brace matching did not yield valid JSON. Will attempt to parse original trimmed text.");
     }
-    
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      const potentialJson = text.substring(firstBrace, lastBrace + 1);
-      try {
-          JSON.parse(potentialJson);
-          console.log("[EXTRACT_JSON] JSON found by brace matching.");
-          return potentialJson;
-      } catch (e) {
-          console.warn("[EXTRACT_JSON] Brace matching did not yield valid JSON, returning original text for parsing attempt.");
-      }
-    }
-    
-    console.log("[EXTRACT_JSON] No markdown backticks or clear JSON object found, returning original trimmed text.");
-    return text.trim(); 
+  }
+  
+  // Jika semua gagal, kembalikan teks asli yang sudah di-trim,
+  // JSON.parse akan error jika ini bukan JSON valid.
+  const trimmedText = text.trim();
+  console.log("[EXTRACT_JSON] No markdown or clear JSON object found, returning original trimmed text. Length:", trimmedText.length);
+  return trimmedText === "" ? null : trimmedText; 
 }
 
 export async function POST(request: NextRequest) {
@@ -244,7 +252,7 @@ export async function POST(request: NextRequest) {
         
         Key Extracted PCAP Data:
         - Overall Statistics: ${JSON.stringify(dataForAI.statistics, null, 2)}
-        - Sample Packets (first ${MAX_SAMPLES_FOR_AI} packets or less, 'no' field is packet number): ${JSON.stringify(dataForAI.samplePackets, null, 2)} 
+        - Sample Packets (first ${MAX_SAMPLES_FOR_AI} packets or less, 'no' field is packet number): ${JSON.stringify(dataForAI.samplePackets, null, 2)}
         - Preliminary Scan Results (if any): 
           - Potential Threats: ${JSON.stringify(dataForAI.potentialThreatsIdentified)}
           - Data Exfiltration Signs: ${JSON.stringify(dataForAI.dataExfiltrationSigns)}
@@ -286,7 +294,7 @@ export async function POST(request: NextRequest) {
           "recommendations": [ { "title": "...", ... } ],
           "timeline": [ { "time": "...", "event": "...", "severity": "..." } ]
         }
-        Your response MUST start with '{' and end with '}'. Do NOT include any text or markdown formatting (like \`\`\`json) before or after the JSON object itself. The entire response must be ONLY the JSON object.
+        Your response MUST start with '{' and end with '}'. Do NOT include any text or markdown formatting (like \`\`\`json) before or after the JSON object itself. The entire response must be ONLY the JSON object. If the provided PCAP data is insufficient or unclear for a detailed analysis, you MUST still return a valid JSON object with a 'summary' field explaining this, and other fields like 'findings' and 'iocs' can be empty arrays.
       `,
     });
 
@@ -296,9 +304,9 @@ export async function POST(request: NextRequest) {
     const cleanedJsonText = extractJsonFromString(rawAnalysisText);
     cleanedJsonTextForErrorLog = cleanedJsonText; 
 
-    if (!cleanedJsonText) {
-        console.error(`[API_ANALYZE_PCAP] Failed to extract valid JSON from AI response for analysisId: ${analysisIdFromBody}. Raw text was:`, rawAnalysisText);
-        throw new Error("AI returned data in an unrecoverable format or empty after cleaning.");
+    if (!cleanedJsonText) { // Jika cleanedJsonText adalah null atau string kosong setelah dibersihkan
+        console.error(`[API_ANALYZE_PCAP] AI response was empty or unrecoverable after cleaning for analysisId: ${analysisIdFromBody}. Raw text was (first 500 chars):`, rawAnalysisText?.substring(0, 500));
+        throw new Error("AI returned empty or unrecoverable data after cleaning attempts.");
     }
     
     console.log(`[API_ANALYZE_PCAP] Cleaned JSON text for parsing (length: ${cleanedJsonText.length}):`, cleanedJsonText.substring(0, 200) + "...");
@@ -319,10 +327,11 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && (error.name === 'AI_LoadAPIKeyError' || error.message.includes("API key") || error.message.includes("authentication"))) {
         return NextResponse.json({ error: "AI Provider API key is missing, invalid, or not authorized. Please check server configuration and OpenRouter account status.", details: error.message }, { status: 500 });
     }
+    // Perbarui penanganan SyntaxError untuk menyertakan raw dan cleaned text jika ada.
     if (error instanceof SyntaxError) { 
         console.error(`[API_ANALYZE_PCAP] JSON Parsing Error. Original AI text was (first 500 chars):`, rawAnalysisTextForErrorLog?.substring(0, 500));
-        console.error(`[API_ANALYZE_PCAP] JSON Parsing Error. Cleaned text was (first 500 chars):`, cleanedJsonTextForErrorLog?.substring(0, 500));
-        return NextResponse.json({ error: "Failed to parse AI response even after cleaning. The AI might have returned an invalid JSON structure.", details: errorMessage }, { status: 500 });
+        console.error(`[API_ANALYZE_PCAP] JSON Parsing Error. Cleaned text attempted for parse was (first 500 chars):`, cleanedJsonTextForErrorLog?.substring(0, 500));
+        return NextResponse.json({ error: "Failed to parse AI response. The AI response was not valid JSON even after cleaning attempts.", details: errorMessage }, { status: 500 });
     }
 
     return NextResponse.json({ error: errorMessage, details: error instanceof Error ? error.stack : "No stack available" }, { status: 500 });
