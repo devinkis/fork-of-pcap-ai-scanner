@@ -1,15 +1,13 @@
+// lib/neon-db.ts
 import { createClient } from "@vercel/postgres";
 import { v4 as uuidv4 } from "uuid";
 
-// Get the connection string from environment variables
 const getConnectionString = () => {
   return process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
 };
 
-// Check database connection with better error handling
 const checkDatabaseConnection = () => {
   const databaseUrl = getConnectionString();
-
   if (!databaseUrl) {
     console.error("❌ No database connection string found!");
     console.error("Please ensure one of these environment variables is set:");
@@ -18,318 +16,227 @@ const checkDatabaseConnection = () => {
     console.error("- POSTGRES_URL_NON_POOLING");
     return false;
   }
-
   console.log("✅ Database connection string found");
   return true;
 };
 
-// Initialize connection check
 checkDatabaseConnection();
 
-// Function to create a client with proper connection string
-const createDbClient = () => {
-  // First check for non-pooling connection string
+// Fungsi createDbClient diekspor agar bisa digunakan di tempat lain jika perlu,
+// misalnya di API route lain atau skrip.
+export const createDbClient = () => {
   if (process.env.POSTGRES_URL_NON_POOLING) {
     return createClient({
       connectionString: process.env.POSTGRES_URL_NON_POOLING,
-      ssl: { rejectUnauthorized: false },
+      // Opsi SSL mungkin perlu disesuaikan tergantung konfigurasi NeonDB Anda
+      // Untuk Vercel KV (Postgres), rejectUnauthorized: false biasanya diperlukan.
+      ssl: { rejectUnauthorized: false }, 
     });
   }
-
-  // Then check for regular connection strings
   const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!connectionString) {
-    throw new Error("No database connection string available");
+    throw new Error("No database connection string available for pooled connection");
   }
-
-  // For pooled connections, we need to use createClient with the right options
   return createClient({
     connectionString,
     ssl: { rejectUnauthorized: false },
   });
 };
 
-// Export the createDbClient function for use in debug endpoint
-export { createDbClient };
-
-// Function to initialize the database schema
 export async function initializeDatabase() {
+  console.log("🔄 Initializing database schema...");
+  const client = createDbClient();
   try {
-    console.log("🔄 Initializing database schema...");
-    const client = createDbClient();
     await client.connect();
-
-    try {
-      // Create users table if it doesn't exist
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS users (
-          id TEXT PRIMARY KEY,
-          email TEXT UNIQUE NOT NULL,
-          password TEXT NOT NULL,
-          name TEXT,
-          role TEXT NOT NULL DEFAULT 'USER',
-          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Create pcap_files table if it doesn't exist
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS pcap_files (
-          id TEXT PRIMARY KEY,
-          file_name TEXT NOT NULL,
-          original_name TEXT NOT NULL,
-          size INTEGER NOT NULL,
-          blob_url TEXT,
-          analysis_id TEXT UNIQUE NOT NULL,
-          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Create indexes for better performance
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)
-      `);
-
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_pcap_files_analysis_id ON pcap_files(analysis_id)
-      `);
-
-      await client.query(`
-        CREATE INDEX IF NOT EXISTS idx_pcap_files_user_id ON pcap_files(user_id)
-      `);
-
-      console.log("✅ Database schema initialized successfully");
-      return { success: true, message: "Database schema initialized successfully" };
-    } finally {
-      await client.end();
-    }
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        name TEXT,
+        role TEXT NOT NULL DEFAULT 'USER',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pcap_files (
+        id TEXT PRIMARY KEY,
+        file_name TEXT NOT NULL,
+        original_name TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        blob_url TEXT,
+        analysis_id TEXT UNIQUE NOT NULL,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_pcap_files_analysis_id ON pcap_files(analysis_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_pcap_files_user_id ON pcap_files(user_id)`);
+    console.log("✅ Database schema initialized successfully");
+    return { success: true, message: "Database schema initialized successfully" };
   } catch (error) {
     console.error("❌ Error initializing database schema:", error);
-    throw error;
+    throw error; // Lempar ulang error agar bisa ditangani oleh pemanggil
+  } finally {
+    await client.end();
   }
 }
 
-// Function to seed initial users
 export async function seedUsers(adminPassword: string, userPassword: string) {
+  console.log("🔄 Seeding users...");
+  const client = createDbClient();
   try {
-    console.log("🔄 Seeding users...");
-    const client = createDbClient();
     await client.connect();
-
-    try {
-      // Check if admin user already exists
-      const adminResult = await client.query("SELECT * FROM users WHERE email = $1", ["admin@pcapscanner.com"]);
-
-      if (adminResult.rows.length === 0) {
-        console.log("Creating admin user...");
-        // Create admin user
-        await client.query("INSERT INTO users (id, email, password, name, role) VALUES ($1, $2, $3, $4, $5)", [
-          `admin-${uuidv4()}`,
-          "admin@pcapscanner.com",
-          adminPassword,
-          "Admin User",
-          "ADMIN",
-        ]);
-        console.log("✅ Admin user created");
-      } else {
-        console.log("ℹ️ Admin user already exists");
-      }
-
-      // Check if regular user already exists
-      const userResult = await client.query("SELECT * FROM users WHERE email = $1", ["user@pcapscanner.com"]);
-
-      if (userResult.rows.length === 0) {
-        console.log("Creating regular user...");
-        // Create regular user
-        await client.query("INSERT INTO users (id, email, password, name, role) VALUES ($1, $2, $3, $4, $5)", [
-          `user-${uuidv4()}`,
-          "user@pcapscanner.com",
-          userPassword,
-          "Regular User",
-          "USER",
-        ]);
-        console.log("✅ Regular user created");
-      } else {
-        console.log("ℹ️ Regular user already exists");
-      }
-
-      // Get all users to return
-      const allUsers = await client.query("SELECT id, email, name, role FROM users ORDER BY email");
-
-      console.log("✅ User seeding completed");
-      return {
-        success: true,
-        message: "Users seeded successfully",
-        users: allUsers.rows,
-      };
-    } finally {
-      await client.end();
+    // Admin user
+    const adminResult = await client.query("SELECT * FROM users WHERE email = $1", ["admin@pcapscanner.com"]);
+    if (adminResult.rows.length === 0) {
+      await client.query("INSERT INTO users (id, email, password, name, role) VALUES ($1, $2, $3, $4, $5)", [
+        `admin-${uuidv4()}`, "admin@pcapscanner.com", adminPassword, "Admin User", "ADMIN",
+      ]);
+      console.log("✅ Admin user created");
+    } else {
+      console.log("ℹ️ Admin user already exists");
     }
+    // Regular user
+    const userResult = await client.query("SELECT * FROM users WHERE email = $1", ["user@pcapscanner.com"]);
+    if (userResult.rows.length === 0) {
+      await client.query("INSERT INTO users (id, email, password, name, role) VALUES ($1, $2, $3, $4, $5)", [
+        `user-${uuidv4()}`, "user@pcapscanner.com", userPassword, "Regular User", "USER",
+      ]);
+      console.log("✅ Regular user created");
+    } else {
+      console.log("ℹ️ Regular user already exists");
+    }
+    const allUsers = await client.query("SELECT id, email, name, role FROM users ORDER BY email");
+    console.log("✅ User seeding completed");
+    return { success: true, message: "Users seeded successfully", users: allUsers.rows };
   } catch (error) {
     console.error("❌ Error seeding users:", error);
     throw error;
+  } finally {
+    await client.end();
   }
 }
 
-// User methods with improved error handling
+// Helper untuk memetakan row ke objek User dengan createdAt dan updatedAt
+const mapUserRow = (row: any) => {
+  if (!row) return null;
+  return {
+    ...row,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
+// Helper untuk memetakan row ke objek PcapFile dengan createdAt dan updatedAt
+const mapPcapFileRow = (row: any) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    originalName: row.original_name,
+    size: row.size,
+    blobUrl: row.blob_url,
+    analysisId: row.analysis_id,
+    userId: row.user_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
+
 export const userDb = {
   findUnique: async (where: { id?: string; email?: string }) => {
     const client = createDbClient();
-    await client.connect();
-
     try {
+      await client.connect();
+      let result;
       if (where.id) {
-        const result = await client.query("SELECT * FROM users WHERE id = $1", [where.id]);
-        if (result.rows.length === 0) {
-          return null;
-        }
-
-        const user = result.rows[0];
-        return {
-          ...user,
-          createdAt: user.created_at,
-          updatedAt: user.updated_at,
-        };
+        result = await client.query("SELECT * FROM users WHERE id = $1", [where.id]);
       } else if (where.email) {
-        console.log(`🔍 Looking for user with email: ${where.email}`);
-
-        const result = await client.query("SELECT * FROM users WHERE LOWER(email) = LOWER($1)", [where.email]);
-
-        if (result.rows.length === 0) {
-          console.log(`❌ No user found with email: ${where.email}`);
-          return null;
-        }
-
-        const user = result.rows[0];
-        console.log(`✅ User found: ${user.email}`);
-        return {
-          ...user,
-          createdAt: user.created_at,
-          updatedAt: user.updated_at,
-        };
+        result = await client.query("SELECT * FROM users WHERE LOWER(email) = LOWER($1)", [where.email.toLowerCase()]);
+      } else {
+        return null;
       }
-      return null;
+      return mapUserRow(result?.rows[0]);
     } catch (error) {
-      console.error("❌ Error finding user:", error);
+      console.error("❌ Error finding unique user:", error);
       throw error;
     } finally {
       await client.end();
     }
   },
 
-  findFirst: async (options: { where: any }) => {
+  findFirst: async (options: { where: { email?: string; NOT?: { id?: string } } }) => {
     const client = createDbClient();
-    await client.connect();
-
     try {
+      await client.connect();
       const { where } = options;
-
       if (where.email && where.NOT?.id) {
-        const result = await client.query("SELECT * FROM users WHERE email = $1 AND id != $2", [
-          where.email,
+        const result = await client.query("SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND id != $2 LIMIT 1", [
+          where.email.toLowerCase(),
           where.NOT.id,
         ]);
-        if (result.rows.length === 0) return null;
-
-        const user = result.rows[0];
-        return {
-          ...user,
-          createdAt: user.created_at,
-          updatedAt: user.updated_at,
-        };
+        return mapUserRow(result.rows[0]);
       }
-
+      // Tambahkan kondisi lain jika diperlukan
       return null;
     } catch (error) {
-      console.error("❌ Error finding user:", error);
-      return null;
+      console.error("❌ Error finding first user:", error);
+      throw error;
     } finally {
       await client.end();
     }
   },
 
-  findMany: async (options?: { select?: any; orderBy?: any }) => {
+  findMany: async (options?: { select?: any; orderBy?: { createdAt?: 'asc' | 'desc' } }) => {
     const client = createDbClient();
-    await client.connect();
-
     try {
+      await client.connect();
       let query = "SELECT ";
-
       if (options?.select) {
-        const fields = Object.keys(options.select)
-          .filter((key) => options.select[key])
-          .map((key) => {
-            return key === "createdAt" ? "created_at" : key === "updatedAt" ? "updated_at" : key;
-          });
-
+        const fields = Object.keys(options.select).filter(key => options.select[key]).map(key => key === 'createdAt' ? 'created_at' : key === 'updatedAt' ? 'updated_at' : key);
         query += fields.length > 0 ? fields.join(", ") : "*";
       } else {
         query += "*";
       }
-
       query += " FROM users";
-
-      if (options?.orderBy?.createdAt === "desc") {
-        query += " ORDER BY created_at DESC";
+      if (options?.orderBy?.createdAt) {
+        query += ` ORDER BY created_at ${options.orderBy.createdAt.toUpperCase()}`;
       }
-
       const result = await client.query(query);
-
-      return result.rows.map((row) => {
-        const user: any = {};
-        Object.keys(row).forEach((key) => {
-          if (key === "created_at") user.createdAt = row[key];
-          else if (key === "updated_at") user.updatedAt = row[key];
-          else user[key] = row[key];
-        });
-        return user;
-      });
+      return result.rows.map(mapUserRow);
     } catch (error) {
-      console.error("❌ Error finding users:", error);
-      return [];
+      console.error("❌ Error finding many users:", error);
+      throw error;
     } finally {
       await client.end();
     }
   },
 
-  create: async (options: { data: any; select?: any }) => {
+  create: async (options: { data: Partial<Omit<ReturnType<typeof mapUserRow>, 'createdAt'|'updatedAt'|'id'> & {id?: string, password?: string}>; select?: any }) => {
     const client = createDbClient();
-    await client.connect();
-
     try {
+      await client.connect();
       const { data, select } = options;
       const id = data.id || uuidv4();
       const now = new Date();
-
       const result = await client.query(
         `INSERT INTO users (id, email, password, name, role, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [id, data.email || "", data.password || "", data.name || null, data.role || "USER", now, now],
+        [id, data.email!, data.password!, data.name || null, data.role || "USER", now, now],
       );
-
-      const user = result.rows[0];
-
-      if (select) {
+      const user = mapUserRow(result.rows[0]);
+      if (select && user) {
         const selectedUser: any = {};
-        Object.keys(select).forEach((key) => {
-          if (select[key]) {
-            if (key === "createdAt") selectedUser[key] = user.created_at;
-            else if (key === "updatedAt") selectedUser[key] = user.updated_at;
-            else selectedUser[key] = user[key];
-          }
-        });
+        Object.keys(select).forEach(key => { if (select[key]) selectedUser[key] = (user as any)[key]; });
         return selectedUser;
       }
-
-      return {
-        ...user,
-        createdAt: user.created_at,
-        updatedAt: user.updated_at,
-      };
+      return user;
     } catch (error) {
       console.error("❌ Error creating user:", error);
       throw error;
@@ -338,100 +245,39 @@ export const userDb = {
     }
   },
 
-  update: async (options: { where: { id: string }; data: any; select?: any }) => {
+  update: async (options: { where: { id: string }; data: Partial<Omit<ReturnType<typeof mapUserRow>, 'createdAt'|'updatedAt'|'id'|'email'>>; select?: any }) => {
     const client = createDbClient();
-    await client.connect();
-
-    try {
+     try {
+      await client.connect();
       const { where, data, select } = options;
       const now = new Date();
+      const updates = []; const values = []; let paramIndex = 1;
 
-      const updates = [];
-      const values = [];
-      let paramIndex = 1;
-
-      if (data.email !== undefined) {
-        updates.push(`email = $${paramIndex++}`);
-        values.push(data.email);
-      }
-
-      if (data.password !== undefined) {
-        updates.push(`password = $${paramIndex++}`);
-        values.push(data.password);
-      }
-
-      if (data.name !== undefined) {
-        updates.push(`name = $${paramIndex++}`);
-        values.push(data.name);
-      }
-
-      if (data.role !== undefined) {
-        updates.push(`role = $${paramIndex++}`);
-        values.push(data.role);
-      }
+      Object.entries(data).forEach(([key, value]) => {
+        if (value !== undefined) {
+            updates.push(`${key === 'createdAt' ? 'created_at' : key === 'updatedAt' ? 'updated_at' : key} = $${paramIndex++}`);
+            values.push(value);
+        }
+      });
+      if (updates.length === 0) return userDb.findUnique({id: where.id}); // No fields to update besides timestamp
 
       updates.push(`updated_at = $${paramIndex++}`);
       values.push(now);
-
-      if (updates.length === 1) { // Only updated_at was added
-        // If only `updated_at` is in `updates`, it means no other fields were provided to update.
-        // We might still want to update the `updated_at` timestamp, or return the existing user.
-        // For now, let's proceed with the update if other fields are present, or fetch current if not.
-        // This condition check was problematic, let's refine or remove if only timestamp update is fine.
-        // If the intent is to *require* other fields for an update, this logic needs more thought.
-        // Assuming an update always implies at least one actual data field change besides timestamp,
-        // then `updates.length > 1` would be the check.
-        // If only timestamp update is desired when no data fields change, this part needs adjustment.
-        // For safety, if only `updated_at` is pushed, it means no actual data to update.
-        // Let's assume `updates.length === 1` (only updated_at) means no effective data change.
-        // A better approach might be to check if `Object.keys(data).length > 0` before constructing updates.
-        // However, sticking to the current structure, if `updates` only contains `updated_at`,
-        // perhaps we should fetch the current user data and return it, or proceed if timestamp update is desired.
-        // The original code had `if (updates.length === 1) { return null }`. This implies if only `updated_at` is to be changed, it's not a valid update.
-        // This part `if (updates.length === 1) { return null; }` was problematic if an update only involved one field other than `updated_at`.
-        // Let's remove the `if (updates.length === 1) { return null; }` check for now, as an update might legitimately only change one field.
-        // The critical part is that `updates` should not be empty if we are to run an UPDATE query.
-        if (paramIndex === 2 && updates.length === 1 && updates[0].startsWith('updated_at')) { // only updated_at
-             // If only updated_at is being "updated", just fetch and return the user
-            const currentUserResult = await client.query("SELECT * FROM users WHERE id = $1", [where.id]);
-            if (currentUserResult.rows.length === 0) return null;
-            const currentUser = currentUserResult.rows[0];
-            return { ...currentUser, createdAt: currentUser.created_at, updatedAt: currentUser.updated_at };
-        }
-      }
-
-
       values.push(where.id);
+
       const updateQuery = `UPDATE users SET ${updates.join(", ")} WHERE id = $${paramIndex} RETURNING *`;
-
       const result = await client.query(updateQuery, values);
+      const user = mapUserRow(result.rows[0]);
 
-      if (result.rows.length === 0) {
-        return null;
-      }
-
-      const user = result.rows[0];
-
-      if (select) {
+      if (select && user) {
         const selectedUser: any = {};
-        Object.keys(select).forEach((key) => {
-          if (select[key]) {
-            if (key === "createdAt") selectedUser[key] = user.created_at;
-            else if (key === "updatedAt") selectedUser[key] = user.updated_at;
-            else selectedUser[key] = user[key];
-          }
-        });
+        Object.keys(select).forEach(key => { if (select[key]) selectedUser[key] = (user as any)[key]; });
         return selectedUser;
       }
-
-      return {
-        ...user,
-        createdAt: user.created_at,
-        updatedAt: user.updated_at,
-      };
+      return user;
     } catch (error) {
       console.error("❌ Error updating user:", error);
-      return null; // Or throw error based on desired behavior
+      throw error;
     } finally {
       await client.end();
     }
@@ -439,111 +285,41 @@ export const userDb = {
 
   delete: async (options: { where: { id: string } }) => {
     const client = createDbClient();
-    await client.connect();
-
     try {
+      await client.connect();
       const { where } = options;
-
       const getResult = await client.query("SELECT * FROM users WHERE id = $1", [where.id]);
-
-      if (getResult.rows.length === 0) {
-        return null;
-      }
-
-      const user = getResult.rows[0];
-
+      if (getResult.rows.length === 0) return null;
+      const user = mapUserRow(getResult.rows[0]);
       await client.query("DELETE FROM users WHERE id = $1", [where.id]);
-
-      return {
-        ...user,
-        createdAt: user.created_at,
-        updatedAt: user.updated_at,
-      };
+      return user;
     } catch (error) {
       console.error("❌ Error deleting user:", error);
-      return null;
+      throw error;
     } finally {
       await client.end();
     }
   },
-
-  upsert: async (options: {
-    where: { email: string };
-    update: any;
-    create: any;
-  }) => {
-    try {
-      const { where, update, create } = options;
-
-      const existingUser = await userDb.findUnique({ email: where.email });
-
-      if (existingUser) {
-        return userDb.update({
-          where: { id: existingUser.id },
-          data: update,
-        });
-      } else {
-        return userDb.create({ data: create });
-      }
-    } catch (error) {
-      console.error("❌ Error upserting user:", error);
-      throw error;
-    }
-  },
 };
 
-// PcapFile methods with improved error handling
+
 export const pcapFileDb = {
   findUnique: async (where: { id?: string; analysisId?: string }) => {
     const client = createDbClient();
-    await client.connect();
-
     try {
+      await client.connect();
+      let result;
       if (where.id) {
-        console.log(`🔍 Finding PCAP file by ID: ${where.id}`);
-        const result = await client.query("SELECT * FROM pcap_files WHERE id = $1", [where.id]);
-        if (result.rows.length === 0) {
-          console.log(`❌ No PCAP file found with ID: ${where.id}`);
-          return null;
-        }
-        const file = result.rows[0];
-        console.log(`✅ Found PCAP file by ID:`, file);
-        return {
-          id: file.id,
-          fileName: file.file_name,
-          originalName: file.original_name,
-          size: file.size,
-          blobUrl: file.blob_url,
-          analysisId: file.analysis_id,
-          userId: file.user_id,
-          createdAt: file.created_at,
-          updatedAt: file.updated_at,
-        };
+        result = await client.query("SELECT * FROM pcap_files WHERE id = $1", [where.id]);
       } else if (where.analysisId) {
-        console.log(`🔍 Finding PCAP file by analysis ID: ${where.analysisId}`);
-        const result = await client.query("SELECT * FROM pcap_files WHERE analysis_id = $1", [where.analysisId]);
-        if (result.rows.length === 0) {
-          console.log(`❌ No PCAP file found with analysis ID: ${where.analysisId}`);
-          return null;
-        }
-        const file = result.rows[0];
-        console.log(`✅ Found PCAP file by analysis ID:`, file);
-        return {
-          id: file.id,
-          fileName: file.file_name,
-          originalName: file.original_name,
-          size: file.size,
-          blobUrl: file.blob_url,
-          analysisId: file.analysis_id,
-          userId: file.user_id,
-          createdAt: file.created_at,
-          updatedAt: file.updated_at,
-        };
+        result = await client.query("SELECT * FROM pcap_files WHERE analysis_id = $1", [where.analysisId]);
+      } else {
+        return null;
       }
-      return null;
+      return mapPcapFileRow(result?.rows[0]);
     } catch (error) {
-      console.error("❌ Error finding pcap file:", error);
-      return null;
+      console.error("❌ Error finding unique pcap_file:", error);
+      throw error;
     } finally {
       await client.end();
     }
@@ -551,277 +327,135 @@ export const pcapFileDb = {
 
   findFirst: async (options: { where: { analysisId?: string; userId?: string } }) => {
     const client = createDbClient();
-    await client.connect();
-
     try {
-      const conditions = [];
-      const values = [];
-      let paramIndex = 1;
-
-      const { where: conditionsToCheck } = options; // Correctly access the nested 'where' object
-
-      console.log(`🔍 pcapFileDb.findFirst - Effective 'where' clause:`, conditionsToCheck);
-
-
-      if (conditionsToCheck.analysisId) {
-        conditions.push(`analysis_id = $${paramIndex++}`);
-        values.push(conditionsToCheck.analysisId);
-        console.log(`🔍 Added condition for analysisId: ${conditionsToCheck.analysisId}`);
-      } else {
-        console.log(`ℹ️ No analysisId provided in where clause or it's falsy.`);
-      }
-
-      if (conditionsToCheck.userId) {
-        conditions.push(`user_id = $${paramIndex++}`);
-        values.push(conditionsToCheck.userId);
-        console.log(`🔍 Added condition for userId: ${conditionsToCheck.userId}`);
-      } else {
-        console.log(`ℹ️ No userId provided in where clause or it's falsy.`);
-      }
-
-
-      if (conditions.length === 0) {
-        console.log("❌ No search conditions provided for findFirst (after processing options.where).");
-        return null;
-      }
-
+      await client.connect();
+      const { where } = options;
+      const conditions = []; const values = []; let paramIndex = 1;
+      if (where.analysisId) { conditions.push(`analysis_id = $${paramIndex++}`); values.push(where.analysisId); }
+      if (where.userId) { conditions.push(`user_id = $${paramIndex++}`); values.push(where.userId); }
+      if (conditions.length === 0) return null; // Atau error jika tidak ada kondisi
       const query = `SELECT * FROM pcap_files WHERE ${conditions.join(" AND ")} LIMIT 1`;
-      console.log(`🔍 Executing findFirst query: ${query} with values:`, values);
-
       const result = await client.query(query, values);
-      console.log(`📊 Query returned ${result.rows.length} rows`);
-
-      if (result.rows.length === 0) {
-        console.log(`❌ No PCAP file found with conditions:`, conditionsToCheck);
-
-        if (conditionsToCheck.userId) {
-          const debugResult = await client.query("SELECT analysis_id, user_id, original_name FROM pcap_files WHERE user_id = $1", [
-            conditionsToCheck.userId,
-          ]);
-          console.log(`🔍 Debug: All files for user ${conditionsToCheck.userId}:`, debugResult.rows);
-        }
-        if (conditionsToCheck.analysisId) {
-            const debugResultAnalysis = await client.query("SELECT analysis_id, user_id, original_name FROM pcap_files WHERE analysis_id = $1", [
-              conditionsToCheck.analysisId,
-            ]);
-            console.log(`🔍 Debug: Record matching analysisId ${conditionsToCheck.analysisId}:`, debugResultAnalysis.rows);
-        }
-        return null;
-      }
-
-      const file = result.rows[0];
-      console.log(`✅ Found PCAP file with findFirst:`, {
-        id: file.id,
-        analysisId: file.analysis_id,
-        userId: file.user_id,
-        originalName: file.original_name,
-      });
-
-      return {
-        id: file.id,
-        fileName: file.file_name,
-        originalName: file.original_name,
-        size: file.size,
-        blobUrl: file.blob_url,
-        analysisId: file.analysis_id,
-        userId: file.user_id,
-        createdAt: file.created_at,
-        updatedAt: file.updated_at,
-      };
+      return mapPcapFileRow(result.rows[0]);
     } catch (error) {
-      console.error("❌ Error in findFirst pcap file:", error);
-      return null;
-    } finally {
-      await client.end();
-    }
-  },
-
-  findMany: async (where: { userId?: string }) => {
-    const client = createDbClient();
-    await client.connect();
-
-    try {
-      let query = "SELECT * FROM pcap_files";
-      const values = [];
-
-      if (where.userId) {
-        query += " WHERE user_id = $1";
-        values.push(where.userId);
-      }
-
-      query += " ORDER BY created_at DESC";
-
-      const result = await client.query(query, values);
-
-      return result.rows.map((file) => ({
-        id: file.id,
-        fileName: file.file_name,
-        originalName: file.original_name,
-        size: file.size,
-        blobUrl: file.blob_url,
-        analysisId: file.analysis_id,
-        userId: file.user_id,
-        createdAt: file.created_at,
-        updatedAt: file.updated_at,
-      }));
-    } catch (error) {
-      console.error("❌ Error finding pcap files:", error);
-      return [];
-    } finally {
-      await client.end();
-    }
-  },
-
-  create: async (data: { data: any }) => {
-    const client = createDbClient();
-    await client.connect();
-
-    try {
-      const fileData = data.data;
-      const id = fileData.id || uuidv4();
-      const now = new Date();
-
-      console.log(`🔄 Creating PCAP file record with data:`, {
-        id,
-        fileName: fileData.fileName,
-        originalName: fileData.originalName,
-        size: fileData.size,
-        analysisId: fileData.analysisId,
-        userId: fileData.userId,
-      });
-
-      const result = await client.query(
-        `INSERT INTO pcap_files (
-          id, file_name, original_name, size, blob_url, analysis_id, user_id, created_at, updated_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        RETURNING *`,
-        [
-          id,
-          fileData.fileName || "",
-          fileData.originalName || "",
-          fileData.size || 0,
-          fileData.blobUrl || null,
-          fileData.analysisId || "",
-          fileData.userId || "",
-          now,
-          now,
-        ],
-      );
-
-      const file = result.rows[0];
-      console.log(`✅ PCAP file record created successfully:`, {
-        id: file.id,
-        analysisId: file.analysis_id,
-        userId: file.user_id,
-        originalName: file.original_name,
-      });
-
-      return {
-        id: file.id,
-        fileName: file.file_name,
-        originalName: file.original_name,
-        size: file.size,
-        blobUrl: file.blob_url,
-        analysisId: file.analysis_id,
-        userId: file.user_id,
-        createdAt: file.created_at,
-        updatedAt: file.updated_at,
-      };
-    } catch (error) {
-      console.error("❌ Error creating pcap file:", error);
+      console.error("❌ Error finding first pcap_file:", error);
       throw error;
     } finally {
       await client.end();
     }
   },
 
-  update: async (options: { where: { id: string }; data: any }) => {
+  findMany: async (options: { userId?: string } = {}) => {
     const client = createDbClient();
-    await client.connect();
-
     try {
+      await client.connect();
+      let query = "SELECT * FROM pcap_files";
+      const values = [];
+      if (options.userId) {
+        query += " WHERE user_id = $1";
+        values.push(options.userId);
+      }
+      query += " ORDER BY created_at DESC";
+      const result = await client.query(query, values);
+      return result.rows.map(mapPcapFileRow);
+    } catch (error) {
+      console.error("❌ Error finding many pcap_files:", error);
+      throw error;
+    } finally {
+      await client.end();
+    }
+  },
+
+  create: async (options: { data: Partial<Omit<ReturnType<typeof mapPcapFileRow>, 'createdAt'|'updatedAt'|'id'>> & {id?:string} }) => {
+    const client = createDbClient();
+    try {
+      await client.connect();
+      const fileData = options.data;
+      const id = fileData.id || uuidv4();
+      const now = new Date();
+      const result = await client.query(
+        `INSERT INTO pcap_files (id, file_name, original_name, size, blob_url, analysis_id, user_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING *`,
+        [
+          id, fileData.fileName!, fileData.originalName!, fileData.size!,
+          fileData.blobUrl || null, fileData.analysisId!, fileData.userId!, now, now
+        ],
+      );
+      return mapPcapFileRow(result.rows[0]);
+    } catch (error) {
+      console.error("❌ Error creating pcap_file:", error);
+      throw error;
+    } finally {
+      await client.end();
+    }
+  },
+
+  update: async (options: { where: { id: string }; data: Partial<Omit<ReturnType<typeof mapPcapFileRow>, 'createdAt'|'updatedAt'|'id'|'analysisId'|'userId'|'originalName'|'size'>> }) => {
+    const client = createDbClient();
+    try {
+      await client.connect();
       const { where, data } = options;
       const now = new Date();
+      const updates = []; const values = []; let paramIndex = 1;
 
-      const updates = [];
-      const values = [];
-      let paramIndex = 1;
-
-      if (data.fileName !== undefined) {
-        updates.push(`file_name = $${paramIndex++}`);
-        values.push(data.fileName);
-      }
-
-      if (data.blobUrl !== undefined) {
-        updates.push(`blob_url = $${paramIndex++}`);
-        values.push(data.blobUrl);
-      }
+      Object.entries(data).forEach(([key, value]) => {
+        if (value !== undefined) {
+            updates.push(`${key === 'fileName' ? 'file_name' : key === 'blobUrl' ? 'blob_url' : key} = $${paramIndex++}`);
+            values.push(value);
+        }
+      });
+      if (updates.length === 0) return pcapFileDb.findUnique({id: where.id});
 
       updates.push(`updated_at = $${paramIndex++}`);
       values.push(now);
-
-      if (updates.length === 1 && updates[0].startsWith('updated_at')) { // Only updated_at is being "updated"
-        // If only updated_at is being "updated", just fetch and return the file
-        const currentFileResult = await client.query("SELECT * FROM pcap_files WHERE id = $1", [where.id]);
-        if (currentFileResult.rows.length === 0) return null;
-        const currentFile = currentFileResult.rows[0];
-        return {
-            id: currentFile.id,
-            fileName: currentFile.file_name,
-            originalName: currentFile.original_name,
-            size: currentFile.size,
-            blobUrl: currentFile.blob_url,
-            analysisId: currentFile.analysis_id,
-            userId: currentFile.user_id,
-            createdAt: currentFile.created_at,
-            updatedAt: currentFile.updated_at,
-         };
-      }
-
-
       values.push(where.id);
+      
       const updateQuery = `UPDATE pcap_files SET ${updates.join(", ")} WHERE id = $${paramIndex} RETURNING *`;
-
       const result = await client.query(updateQuery, values);
+      return mapPcapFileRow(result.rows[0]);
+    } catch (error) {
+      console.error("❌ Error updating pcap_file:", error);
+      throw error;
+    } finally {
+      await client.end();
+    }
+  },
 
-      if (result.rows.length === 0) {
+  delete: async (options: { where: { id: string } }) => {
+    const client = createDbClient();
+    try {
+      await client.connect();
+      const { where } = options;
+      if (!where.id) {
+        throw new Error("ID is required to delete a pcap_file record.");
+      }
+      const getResult = await client.query("SELECT * FROM pcap_files WHERE id = $1", [where.id]);
+      if (getResult.rows.length === 0) {
+        console.warn(`[NEON-DB] pcapFile.delete: Record with ID ${where.id} not found.`);
         return null;
       }
-
-      const file = result.rows[0];
-
-      return {
-        id: file.id,
-        fileName: file.file_name,
-        originalName: file.original_name,
-        size: file.size,
-        blobUrl: file.blob_url,
-        analysisId: file.analysis_id,
-        userId: file.user_id,
-        createdAt: file.created_at,
-        updatedAt: file.updated_at,
-      };
+      const fileToDelete = mapPcapFileRow(getResult.rows[0]);
+      await client.query("DELETE FROM pcap_files WHERE id = $1", [where.id]);
+      console.log(`[NEON-DB] pcapFile.delete: Record with ID ${where.id} deleted.`);
+      return fileToDelete;
     } catch (error) {
-      console.error("❌ Error updating pcap file:", error);
-      return null;
+      console.error("❌ Error deleting pcap_file record:", error);
+      throw error;
     } finally {
       await client.end();
     }
   },
 };
 
-// Health check query with better error handling
 export const queryRaw = async (query: string) => {
-  if (query !== "SELECT 1") {
-    throw new Error("Unsupported query");
+  if (query !== "SELECT 1") { // Batasi hanya query tertentu untuk keamanan
+    throw new Error("Unsupported raw query");
   }
-
   const client = createDbClient();
-  await client.connect();
-
   try {
-    const result = await client.query("SELECT 1");
+    await client.connect();
+    const result = await client.query(query); // Jalankan query yang diberikan
     return result.rows;
   } catch (error) {
     console.error("❌ Error executing raw query:", error);
@@ -831,12 +465,10 @@ export const queryRaw = async (query: string) => {
   }
 };
 
-// Test database connection
 export const testConnection = async () => {
   const client = createDbClient();
-  await client.connect();
-
   try {
+    await client.connect();
     console.log("🔄 Testing database connection...");
     const result = await client.query("SELECT 1 as test, NOW() as current_time");
     console.log("✅ Database connection successful");
@@ -854,7 +486,7 @@ export default {
   pcapFile: pcapFileDb,
   $queryRaw: queryRaw,
   $disconnect: async () => {
-    // No need to explicitly disconnect with @vercel/postgres client
+    // Tidak ada yang perlu dilakukan secara eksplisit untuk @vercel/postgres pool
   },
   initializeDatabase,
   seedUsers,
