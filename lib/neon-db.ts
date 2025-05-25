@@ -446,6 +446,35 @@ export const pcapFileDb = {
       await client.end();
     }
   },
+  // --- TAMBAHKAN METODE BARU DI SINI ---
+  deleteManyByUserId: async (options: { where: { userId: string } }) => {
+    const client = createDbClient();
+    try {
+      await client.connect();
+      const { where } = options;
+      if (!where.userId) {
+        throw new Error("User ID is required to delete multiple pcap_file records.");
+      }
+      
+      // Tidak perlu mengambil record dulu karena kita menghapus berdasarkan userId
+      // dan ON DELETE CASCADE pada foreign key user_id di tabel pcap_files akan menangani ini
+      // jika kita menghapus user. Namun, karena kita menghapus pcap_files berdasarkan userId,
+      // kita langsung saja.
+
+      // Yang akan kita kembalikan adalah jumlah record yang dihapus.
+      const result = await client.query("DELETE FROM pcap_files WHERE user_id = $1 RETURNING id", [where.userId]);
+      
+      const deletedCount = result.rowCount || 0;
+      console.log(`[NEON-DB] pcapFile.deleteManyByUserId: ${deletedCount} records deleted for user ID ${where.userId}.`);
+      
+      return { count: deletedCount }; // Mengembalikan jumlah record yang berhasil dihapus
+    } catch (error) {
+      console.error("❌ Error deleting multiple pcap_file records by user ID:", error);
+      throw error;
+    } finally {
+      await client.end();
+    }
+  },
 };
 
 export const queryRaw = async (query: string) => {
