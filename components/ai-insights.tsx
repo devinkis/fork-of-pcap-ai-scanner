@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-// ... (impor lainnya)
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, Sector } from 'recharts';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -11,7 +10,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
-import { ExternalLink, FileText, AlertCircle, Activity, Shield, Clock, Users, BarChart2, PieChart as PieChartIcon, Info, Maximize2, Download, Share2, Printer, MessageSquare, Edit3, RefreshCw, Loader2 } from 'lucide-react';
+import { ExternalLink, FileText, AlertCircle, Activity, Shield, Clock, Users, BarChart2, PieChart as PieChartIcon, Info, Maximize2, Download, Share2, Printer, MessageSquare, Edit3, RefreshCw, Loader2, AlertTriangle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -30,12 +29,24 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-// --- PERBAIKAN MULAI ---
-import { Badge } from "@/components/ui/badge"; // Tambahkan impor ini
-// --- PERBAIKAN SELESAI ---
+import { Badge } from "@/components/ui/badge"; // Pastikan Badge diimpor
 
+// --- DEFINISI FUNGSI getStatusVariant LOKAL ---
+const getStatusVariant = (status?: string): "default" | "secondary" | "destructive" | "outline" => {
+  switch (status?.toLowerCase()) {
+    case 'completed':
+      return 'default';
+    case 'processing':
+    case 'pending':
+      return 'secondary';
+    case 'error':
+      return 'destructive';
+    default:
+      return 'outline'; // Untuk status UNKNOWN atau tidak terdefinisi
+  }
+};
+// --- SELESAI DEFINISI LOKAL ---
 
-// ... (sisa interface dan fungsi helper seperti renderActiveShape tetap sama) ...
 interface ProtocolDistribution {
   name: string;
   value: number;
@@ -181,20 +192,20 @@ const renderActiveShape = (props: any) => {
 
 export function AIInsights({ analysisId, initialData: initialServerData, error: initialError }: AiInsightsProps) {
   const [data, setData] = useState<AiInsightsData | null>(initialServerData || null);
-  const [isLoading, setIsLoading] = useState<boolean>(true); 
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(initialError || null);
   const [activePieIndex, setActivePieIndex] = useState<number>(0);
-  const [analystNotes, setAnalystNotes] = useState<string>(""); 
+  const [analystNotes, setAnalystNotes] = useState<string>("");
   const [isSavingNotes, setIsSavingNotes] = useState<boolean>(false);
   const [showRawPayloadModal, setShowRawPayloadModal] = useState<boolean>(false);
   const [selectedPayload, setSelectedPayload] = useState<string | undefined>(undefined);
   const [currentTab, setCurrentTab] = useState<string>("summary");
 
   const fetchData = useCallback(async (isRetry = false) => {
-    if (!isRetry) { 
+    if (!isRetry) {
         setIsLoading(true);
     }
-    setError(null); 
+    setError(null);
     console.log(`[AI_INSIGHTS] Fetching AI analysis data for ID: ${analysisId} at ${new Date().toLocaleTimeString()}`);
     try {
       const response = await fetch(`/api/analyze-pcap`, {
@@ -205,7 +216,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
         body: JSON.stringify({ analysisId: analysisId }),
       });
 
-      const result = await response.json(); 
+      const result = await response.json();
 
       if (!response.ok) {
         console.error("[AI_INSIGHTS] API Error Response:", result);
@@ -220,8 +231,8 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
           fileName: prevData?.fileName || analysisData.fileName || initialServerData?.fileName,
           fileSize: prevData?.fileSize || analysisData.fileSize || initialServerData?.fileSize,
           uploadDate: prevData?.uploadDate || analysisData.uploadDate || initialServerData?.uploadDate,
-          ...analysisData, 
-          status: 'Completed', 
+          ...analysisData,
+          status: 'Completed',
           analystNotes: analysisData.analystNotes || prevData?.analystNotes || initialServerData?.analystNotes || "",
         }));
         setAnalystNotes(analysisData.analystNotes || data?.analystNotes || initialServerData?.analystNotes || "");
@@ -241,10 +252,10 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
       setIsLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analysisId]); 
+  }, [analysisId]);
 
   useEffect(() => {
-    if (initialServerData && !initialError) { // Periksa juga initialError
+    if (initialServerData && !initialError) {
       console.log("[AI_INSIGHTS] Using initial server data.");
       setData(initialServerData);
       setAnalystNotes(initialServerData.analystNotes || "");
@@ -253,14 +264,14 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
       console.log("[AI_INSIGHTS] Using initial server error.");
       setError(initialError);
       setIsLoading(false);
-    } else if (!data && analysisId) { // Hanya fetch jika data belum ada dan analysisId ada
+    } else if (!data && analysisId) {
       console.log("[AI_INSIGHTS] No initial data or error, performing initial fetch for analysisId:", analysisId);
-      fetchData(); 
-    } else if (data && !isLoading){ // Jika sudah ada data dan tidak loading, tidak perlu fetch
+      fetchData();
+    } else if (data && !isLoading){
       console.log("[AI_INSIGHTS] Data already exists, no initial fetch needed or loading already completed.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analysisId, initialServerData, initialError]); // Hanya fetchData yang dihilangkan dari dependency array untuk mencegah loop fetch
+  }, [analysisId, initialServerData, initialError]);
 
 
   const onPieEnter = useCallback((_: any, index: number) => {
@@ -269,9 +280,9 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
 
   const handleSaveNotes = async () => {
     setIsSavingNotes(true);
-    setError(null); 
+    setError(null);
     try {
-      const response = await fetch(`/api/analysis/${analysisId}/notes`, { 
+      const response = await fetch(`/api/analysis/${analysisId}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: analystNotes }),
@@ -283,7 +294,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
       const saveData = await response.json();
       console.log("Notes saved successfully:", saveData);
       setData(prevData => prevData ? { ...prevData, analystNotes: analystNotes } : null);
-      alert("Notes saved!"); 
+      alert("Notes saved!");
     } catch (err: any) {
       console.error("Error saving notes:", err);
       setError(`Failed to save notes: ${err.message}`);
@@ -384,8 +395,8 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
       .catch((error) => console.log('Error sharing', error));
     } else {
       navigator.clipboard.writeText(window.location.href)
-        .then(() => alert("Link copied to clipboard!")) 
-        .catch(() => alert("Could not copy link.")); 
+        .then(() => alert("Link copied to clipboard!"))
+        .catch(() => alert("Could not copy link."));
     }
   };
 
@@ -393,11 +404,11 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
     window.print();
   };
 
-  if (isLoading && !data) { 
+  if (isLoading && !data) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[300px] p-4">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 text-blue-500 animate-spin mx-auto mb-4" /> {/* Ganti ikon Activity menjadi Loader2 */}
+          <Loader2 className="w-12 h-12 text-blue-500 animate-spin mx-auto mb-4" />
           <h2 className="text-xl font-semibold mb-2">Loading AI Insights...</h2>
           <p className="text-gray-600 dark:text-gray-300 mb-4">
             The AI is analyzing your PCAP data. This might take a few moments.
@@ -425,7 +436,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
     );
   }
   
-  if (!data && !isLoading) { 
+  if (!data && !isLoading) {
     return (
       <Alert className="max-w-2xl mx-auto my-8">
         <Info className="h-4 w-4" />
@@ -443,7 +454,6 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   return (
     <TooltipProvider> 
       <div className="space-y-8 p-4 md:p-6">
-        {/* ... (sisa JSX untuk menampilkan data, sama seperti sebelumnya) ... */}
         {error && data && data.status !== 'Error' && (
              <Alert variant="destructive" className="mb-6">
                 <AlertTriangle className="h-4 w-4" />
@@ -538,7 +548,6 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   <TabsTrigger value="timeline" className="flex items-center text-xs sm:text-sm"><Clock className="mr-1 sm:mr-2 h-4 w-4" />Timeline</TabsTrigger>
                   <TabsTrigger value="visuals" className="flex items-center text-xs sm:text-sm"><BarChart2 className="mr-1 sm:mr-2 h-4 w-4" />Visuals</TabsTrigger>
                   {data.performanceMetrics && <TabsTrigger value="performance" className="flex items-center text-xs sm:text-sm"><Activity className="mr-1 sm:mr-2 h-4 w-4" />Perf.</TabsTrigger>}
-                  {/* Tambahkan tab lain jika ada datanya */}
                 </TabsList>
                 <ScrollBar orientation="horizontal" />
               </ScrollArea>
@@ -552,7 +561,6 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                 </TabsContent>
 
                 <TabsContent value="threats">
-                    {/* ... (konten tab threats seperti sebelumnya, pastikan Badge diimpor) ... */}
                     <Card>
                         <CardHeader>
                             <CardTitle className="flex items-center text-lg">
@@ -617,7 +625,6 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                 </TabsContent>
 
                 <TabsContent value="recommendations">
-                  {/* ... (konten tab recommendations seperti sebelumnya) ... */}
                    <Card>
                     <CardHeader><CardTitle className="flex items-center text-lg"><MessageSquare className="mr-2 text-green-500" /> Recommended Actions</CardTitle></CardHeader>
                     <CardContent className="prose dark:prose-invert max-w-none text-sm md:text-base">
@@ -638,7 +645,6 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                 </TabsContent>
 
                 <TabsContent value="timeline">
-                    {/* ... (konten tab timeline seperti sebelumnya) ... */}
                     <Card>
                         <CardHeader><CardTitle className="flex items-center text-lg"><Clock className="mr-2 text-fuchsia-500" /> Event Timeline</CardTitle></CardHeader>
                         <CardContent>
@@ -668,7 +674,6 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                 </TabsContent>
 
                  <TabsContent value="visuals" className="space-y-6">
-                   {/* ... (konten tab visuals seperti sebelumnya) ... */}
                    {data.protocolDistribution && data.protocolDistribution.length > 0 && (
                     <Card>
                       <CardHeader><CardTitle className="flex items-center text-lg"><PieChartIcon className="mr-2 text-purple-500" /> Protocol Distribution</CardTitle></CardHeader>
@@ -681,8 +686,8 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                               data={data.protocolDistribution}
                               cx="50%"
                               cy="50%"
-                              innerRadius={60} 
-                              outerRadius={100} 
+                              innerRadius={60}
+                              outerRadius={100}
                               fill="#8884d8"
                               dataKey="value"
                               onMouseEnter={onPieEnter}
@@ -716,14 +721,25 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                     </Card>
                   )}
                 </TabsContent>
-                {/* ... (Sisa TabsContent lainnya) ... */}
+                {data.performanceMetrics && (
+                  <TabsContent value="performance">
+                    <Card>
+                      <CardHeader><CardTitle className="flex items-center text-lg"><Activity className="mr-2 text-cyan-500" /> Performance</CardTitle></CardHeader>
+                      <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm md:text-base">
+                        <div><strong>Total Packets (in file):</strong> {data.performanceMetrics.totalPackets?.toLocaleString() || data.statistics?.totalPacketsInFile?.toLocaleString() || 'N/A'}</div>
+                        <div><strong>Total Bytes (in file):</strong> {data.performanceMetrics.totalBytes?.toLocaleString() || data.statistics?.totalBytesInFile?.toLocaleString() || 'N/A'}</div>
+                        <div><strong>Capture Duration:</strong> {data.performanceMetrics.captureDuration || 'N/A'}</div>
+                        <div><strong>Avg Packet Rate:</strong> {data.performanceMetrics.averagePacketRate || 'N/A'}</div>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                )}
               </div>
             </Tabs>
           </CardContent>
         </Card>
 
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
-          {/* ... (konten Analyst Notes seperti sebelumnya) ... */}
            <CardHeader>
             <CardTitle className="flex items-center text-lg"><Edit3 className="mr-2 h-5 w-5" /> Analyst Notes</CardTitle>
             <CardDescription className="text-xs sm:text-sm">Add your observations or comments.</CardDescription>
@@ -743,7 +759,6 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
         </Card>
 
         {showRawPayloadModal && (
-          // ... (konten Dialog Raw Payload seperti sebelumnya) ...
           <Dialog open={showRawPayloadModal} onOpenChange={setShowRawPayloadModal}>
             <DialogContent className="sm:max-w-xl md:max-w-2xl lg:max-w-4xl">
               <DialogHeader>
