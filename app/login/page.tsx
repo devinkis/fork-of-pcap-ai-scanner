@@ -1,30 +1,28 @@
 // app/login/page.tsx
 "use client";
 
-import { useState, FormEvent } from 'react'; // Ditambahkan FormEvent dan useState
-import { useRouter } from 'next/navigation'; // Ditambahkan useRouter untuk redirect
+import { useState, FormEvent, useEffect } from 'react'; // Ditambahkan useEffect
+import { useRouter, useSearchParams } from 'next/navigation'; // Ditambahkan useSearchParams
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-// HAPUS: useFormState dan useFormStatus tidak lagi digunakan jika tidak ada Server Action
-// HAPUS: import { authenticateCustomUser } from './actions'; 
-import { AlertCircle, LogInIcon } from "lucide-react";
+import { AlertCircle, LogInIcon } from "lucide-react"; // LogInIcon diganti namanya, sesuaikan jika perlu
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import Link from 'next/link';
 
 // Komponen LoginButton bisa disederhanakan atau state loading dikelola di LoginPage
 function LoginButton({ pending }: { pending: boolean }) {
   return (
-    <Button className="w-full" type="submit" aria-disabled={pending} disabled={pending}>
+    <Button className="w-full h-11 text-base font-semibold" type="submit" aria-disabled={pending} disabled={pending}>
       {pending ? (
         <>
-          <LogInIcon className="mr-2 h-4 w-4 animate-spin" />
+          <LogInIcon className="mr-2 h-5 w-5 animate-spin" /> {/* Pastikan LogInIcon diimpor dengan benar */}
           Logging in...
         </>
       ) : (
         <>
-          <LogInIcon className="mr-2 h-4 w-4" />
+          <LogInIcon className="mr-2 h-5 w-5" /> {/* Pastikan LogInIcon diimpor dengan benar */}
           Login
         </>
       )}
@@ -34,38 +32,55 @@ function LoginButton({ pending }: { pending: boolean }) {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
+  const [callbackUrl, setCallbackUrl] = useState("/");
+
+  useEffect(() => {
+    const cbUrl = searchParams?.get("callbackUrl");
+    if (cbUrl) {
+      setCallbackUrl(decodeURIComponent(cbUrl));
+    }
+    const errorParam = searchParams?.get("error");
+    if (errorParam === "session_expired") {
+      setErrorMessage("Your session has expired. Please log in again.");
+    } else if (errorParam === "server_config_error") {
+      setErrorMessage("Server configuration error. Please contact support.");
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
     setErrorMessage(undefined);
 
-    const formData = new FormData(event.currentTarget);
-    // const email = formData.get('email') as string;
-    // const password = formData.get('password') as string;
+    if (!email.trim() || !password.trim()) {
+      setErrorMessage("Email and password are required.");
+      setIsLoading(false);
+      return;
+    }
 
     try {
-      // Anda perlu mengganti ini dengan panggilan ke API route login Anda
-      // Contoh:
-      const response = await fetch('/api/auth/login', { // Ganti dengan path API Anda
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
-        body: formData, // Kirim FormData langsung jika API Anda bisa menanganinya,
-                       // atau buat objek JSON: body: JSON.stringify({ email, password })
-                       // dan set header 'Content-Type': 'application/json'
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: email.trim(), password: password }),
+        credentials: "include", // Penting untuk cookie
       });
 
       const result = await response.json();
 
-      if (!response.ok) {
-        setErrorMessage(result.message || 'Login failed. Please try again.');
+      if (!response.ok || !result.success) { // Periksa juga result.success
+        setErrorMessage(result.error || 'Login failed. Please try again.');
       } else {
-        // Jika login berhasil, API mungkin mengembalikan data user atau hanya status sukses.
-        // Cookie httpOnly akan disetel oleh API route.
-        // Redirect ke halaman utama atau dashboard.
-        console.log("Login successful, redirecting...");
-        router.push('/'); // Ganti dengan path redirect yang sesuai
+        console.log("Login successful, redirecting to:", callbackUrl);
+        // Redirect menggunakan window.location.href untuk memastikan reload penuh dan cookie terbaca
+        window.location.href = callbackUrl;
       }
     } catch (error) {
       console.error('Login submission error:', error);
@@ -78,7 +93,6 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-900 dark:to-slate-800">
       <div className="w-full max-w-md">
-        {/* Ganti form action dengan onSubmit handler */}
         <form onSubmit={handleSubmit} className="space-y-6">
           <Card className="shadow-2xl">
             <CardHeader className="space-y-1 text-center">
@@ -99,6 +113,9 @@ export default function LoginPage() {
                   type="email"
                   placeholder="name@example.com"
                   required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled={isLoading}
                   className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:border-blue-500 dark:focus:border-blue-500 focus:ring-blue-500 dark:focus:ring-blue-500"
                 />
               </div>
@@ -113,6 +130,9 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   required
                   minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
                   className="bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700 focus:border-blue-500 dark:focus:border-blue-500 focus:ring-blue-500 dark:focus:ring-blue-500"
                 />
               </div>

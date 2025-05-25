@@ -1,143 +1,136 @@
-// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-fb3444031e0b44895e9fddc8cf7c92cce4812117/lib/auth.ts
-import { cookies } from "next/headers"
-import { redirect } from "next/navigation"
-import bcrypt from "bcryptjs"
-import jwt from "jsonwebtoken"
+// lib/auth.ts
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import bcrypt from "bcryptjs"; // Pastikan bcryptjs terinstal dan diimpor
+import jwt from "jsonwebtoken";
 
-const JWT_SECRET = process.env.JWT_SECRET || "Bayuajis112233@"
+// Ambil JWT_SECRET dari environment variable, dengan fallback jika diperlukan (tidak direkomendasikan untuk produksi)
+const JWT_SECRET = process.env.JWT_SECRET || "YOUR_FALLBACK_SECRET_CHANGE_THIS_IN_ENV";
+if (process.env.NODE_ENV === "production" && JWT_SECRET === "YOUR_FALLBACK_SECRET_CHANGE_THIS_IN_ENV") {
+  console.warn("CRITICAL SECURITY WARNING: JWT_SECRET is using a fallback value in production. Please set a strong, unique secret in your environment variables.");
+}
+
 
 export interface User {
-  id: string
-  email: string
-  name: string | null
-  role: "ADMIN" | "USER"
+  id: string;
+  email: string;
+  name: string | null;
+  role: "ADMIN" | "USER";
 }
 
 export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 12)
+  return bcrypt.hash(password, 12);
 }
 
 export async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
-  return bcrypt.compare(password, hashedPassword)
+  return bcrypt.compare(password, hashedPassword);
 }
 
-// Update the generateToken function to use more secure settings
 export function generateToken(user: User): string {
   const payload = {
     id: user.id,
     email: user.email,
     name: user.name,
     role: user.role,
-    // Add a random nonce to prevent token reuse
     nonce: Math.random().toString(36).substring(2, 15),
-    // Add issued at timestamp
     iat: Math.floor(Date.now() / 1000),
+  };
+
+  if (!JWT_SECRET) {
+    throw new Error("JWT_SECRET is not defined. Cannot generate token.");
   }
 
-  // Reduce token expiration to 24 hours for better security
   const token = jwt.sign(payload, JWT_SECRET, {
     expiresIn: "24h",
     algorithm: "HS256",
-  })
+  });
 
-  return token
+  return token;
 }
 
-// Update verifyToken to be more strict
 export function verifyToken(token: string): User | null {
   try {
+    if (!JWT_SECRET) {
+      console.error("verifyToken Error: JWT_SECRET is not defined. Cannot verify token.");
+      return null;
+    }
+
     const decoded = jwt.verify(token, JWT_SECRET, {
       algorithms: ["HS256"],
-    }) as any
+    }) as any;
 
-    // Check if token is expired
-    const now = Math.floor(Date.now() / 1000)
+    const now = Math.floor(Date.now() / 1000);
     if (decoded.exp && decoded.exp < now) {
-      return null
+      console.warn("verifyToken: Token has expired (exp check).");
+      return null;
     }
 
-    // Check if token was issued too long ago (force re-login after 7 days regardless)
-    const sevenDaysInSeconds = 7 * 24 * 60 * 60
+    const sevenDaysInSeconds = 7 * 24 * 60 * 60;
     if (decoded.iat && now - decoded.iat > sevenDaysInSeconds) {
-      return null
+      console.warn("verifyToken: Token is older than 7 days (iat check).");
+      return null;
     }
 
-    // --- FIX START ---
-    // Ensure that id, email, and role are valid non-empty strings
     const userId = typeof decoded.id === 'string' && decoded.id.length > 0 ? decoded.id : null;
     const userEmail = typeof decoded.email === 'string' && decoded.email.length > 0 ? decoded.email : null;
     const userRole = typeof decoded.role === 'string' && decoded.role.length > 0 ? decoded.role : null;
 
     if (!userId || !userEmail || !userRole) {
-      console.warn("Invalid or missing user data in token payload:", { userId, userEmail, userRole });
-      return null; // Invalid token payload
+      console.warn("verifyToken: Invalid or missing user data in token payload:", { userId, userEmail, userRole });
+      return null;
     }
-    // --- FIX END ---
 
     return {
-      id: userId, // Use the validated userId
-      email: userEmail, // Use the validated userEmail
+      id: userId,
+      email: userEmail,
       name: decoded.name || null,
-      role: userRole, // Use the validated userRole
-    }
+      role: userRole as "ADMIN" | "USER",
+    };
   } catch (error) {
-    // Log the error for debugging, but return null for invalid token
-    console.error("Token verification failed:", error);
+     if (error instanceof jwt.TokenExpiredError) {
+        console.warn("verifyToken: JWT TokenExpiredError:", error.message);
+    } else if (error instanceof jwt.JsonWebTokenError) {
+        console.warn("verifyToken: JWT JsonWebTokenError (e.g., invalid signature):", error.message);
+    } else {
+        console.error("verifyToken: Unknown error during token verification:", error);
+    }
     return null;
   }
 }
 
 export async function getCurrentUser(): Promise<User | null> {
   try {
-    const cookieStore = cookies()
-    const token = cookieStore.get("auth-token")?.value
+    const cookieStore = cookies();
+    const token = cookieStore.get("auth-token")?.value;
 
     if (!token) {
-      return null
+      return null;
     }
 
-    const user = verifyToken(token)
-
-    if (!user) {
-      return null
-    }
-
-    // For performance, we'll skip the database check
-    // and just trust the token information
-    return user
-
-    // Uncomment this if you want to verify against the database
-    /*
-    // Verify user still exists in database
-    const dbUser = await db.user.findUnique({
-      where: { id: user.id },
-    })
-
-    return dbUser
-    */
+    const user = verifyToken(token);
+    return user; // Tidak perlu cek database lagi jika token valid dan payload cukup
   } catch (error) {
-    console.error("getCurrentUser error:", error)
-    return null
+    console.error("getCurrentUser error:", error);
+    return null;
   }
 }
 
-// Simplified version that doesn't redirect
 export async function getUser(): Promise<User | null> {
-  return getCurrentUser()
+  return getCurrentUser();
 }
 
 export async function requireAuth(): Promise<User> {
-  const user = await getCurrentUser()
+  const user = await getCurrentUser();
   if (!user) {
-    redirect("/login")
+    redirect("/login"); // Path default jika tidak ada callbackUrl
   }
-  return user
+  return user;
 }
 
 export async function requireAdmin(): Promise<User> {
-  const user = await requireAuth()
+  const user = await requireAuth();
   if (user.role !== "ADMIN") {
-    redirect("/")
+    redirect("/"); // Redirect ke halaman utama jika bukan admin
   }
-  return user
+  return user;
 }

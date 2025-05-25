@@ -1,18 +1,13 @@
-import { NextResponse } from "next/server"
-import type { NextRequest } from "next/server"
-import { verifyJWT } from "@/lib/edge-auth"
+// middleware.ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { verifyJWT } from "@/lib/edge-auth"; // Pastikan path ini benar
 
 export async function middleware(request: NextRequest) {
-  // Get the pathname
-  const path = request.nextUrl.pathname
+  const path = request.nextUrl.pathname;
+  const publicPaths = ["/login", "/api/auth/login", "/api/health", "/api/admin/seed"];
+  const isPublicPath = publicPaths.some((publicPath) => path === publicPath || path.startsWith(`${publicPath}/`));
 
-  // Public paths that don't require authentication
-  const publicPaths = ["/login", "/api/auth/login", "/api/health", "/api/admin/seed"]
-
-  // Check if the path is public
-  const isPublicPath = publicPaths.some((publicPath) => path === publicPath || path.startsWith(`${publicPath}/`))
-
-  // Also allow all static assets
   const isStaticAsset =
     path.startsWith("/_next/") ||
     path.includes("/favicon.ico") ||
@@ -20,56 +15,58 @@ export async function middleware(request: NextRequest) {
     path.includes(".png") ||
     path.includes(".jpg") ||
     path.includes(".jpeg") ||
-    path.includes(".gif")
+    path.includes(".gif");
 
-  // If it's a public path or static asset, allow access
   if (isPublicPath || isStaticAsset) {
-    return NextResponse.next()
+    return NextResponse.next();
   }
 
-  // Special handling for API routes - only allow specific ones without auth
-  const isApiPath = path.startsWith("/api/")
+  const isApiPath = path.startsWith("/api/");
   if (isApiPath) {
-    // List of API routes that don't require authentication
-    const publicApiRoutes = ["/api/auth/login", "/api/health", "/api/admin/seed"]
-
-    const isPublicApi = publicApiRoutes.some((route) => path.startsWith(route))
+    const publicApiRoutes = ["/api/auth/login", "/api/health", "/api/admin/seed"];
+    const isPublicApi = publicApiRoutes.some((route) => path.startsWith(route));
     if (isPublicApi) {
-      return NextResponse.next()
+      return NextResponse.next();
     }
   }
 
-  // Get auth token from cookies
-  const authToken = request.cookies.get("auth-token")?.value
+  const authToken = request.cookies.get("auth-token")?.value;
 
-  // If no auth token, redirect to login
   if (!authToken) {
-    const url = new URL("/login", request.url)
-    url.searchParams.set("callbackUrl", encodeURIComponent(request.nextUrl.pathname))
-    return NextResponse.redirect(url)
+    const url = new URL("/login", request.url);
+    url.searchParams.set("callbackUrl", encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search)); // Sertakan query params
+    return NextResponse.redirect(url);
   }
 
-  // Verify the token
-  const JWT_SECRET = process.env.JWT_SECRET || ""
+  const JWT_SECRET = process.env.JWT_SECRET;
   if (!JWT_SECRET) {
-    console.error("JWT_SECRET is not defined")
-    return NextResponse.redirect(new URL("/login?error=server_error", request.url))
+    console.error("Middleware Error: JWT_SECRET is not defined in environment. User will be redirected to login.");
+    const url = new URL("/login", request.url);
+    url.searchParams.set("error", "server_config_error");
+    url.searchParams.set("callbackUrl", encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search));
+    // Hapus cookie yang mungkin salah jika ada
+    const response = NextResponse.redirect(url);
+    response.cookies.delete("auth-token");
+    response.cookies.delete("auth-status");
+    return response;
   }
 
-  const user = await verifyJWT(authToken, JWT_SECRET)
+  const user = await verifyJWT(authToken, JWT_SECRET); // Kirim JWT_SECRET ke verifyJWT
 
-  // If token is invalid, redirect to login
   if (!user) {
-    const url = new URL("/login", request.url)
-    url.searchParams.set("callbackUrl", encodeURIComponent(request.nextUrl.pathname))
-    url.searchParams.set("error", "session_expired")
-    return NextResponse.redirect(url)
+    const url = new URL("/login", request.url);
+    url.searchParams.set("callbackUrl", encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search));
+    url.searchParams.set("error", "session_expired"); // Atau "invalid_token"
+    // Hapus cookie yang tidak valid
+    const response = NextResponse.redirect(url);
+    response.cookies.delete("auth-token");
+    response.cookies.delete("auth-status");
+    return response;
   }
 
-  // User is authenticated, allow access
-  return NextResponse.next()
+  return NextResponse.next();
 }
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
-}
+};
