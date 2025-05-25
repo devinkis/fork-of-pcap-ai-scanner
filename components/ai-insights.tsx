@@ -24,7 +24,6 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-// Import yang ditambahkan untuk Tooltip
 import {
   Tooltip,
   TooltipContent,
@@ -171,7 +170,8 @@ const renderActiveShape = (props: any) => {
   );
 };
 
-export default function AiInsights({ analysisId, initialData: initialServerData, error: initialError }: AiInsightsProps) {
+// Diubah: nama fungsi menjadi AIInsights (I kapital)
+export default function AIInsights({ analysisId, initialData: initialServerData, error: initialError }: AiInsightsProps) {
   const [data, setData] = useState<AiInsightsData | null>(initialServerData || null);
   const [isLoading, setIsLoading] = useState<boolean>(!initialServerData && !initialError);
   const [error, setError] = useState<string | null>(initialError || null);
@@ -186,7 +186,7 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
     setIsLoading(true);
     setError(null);
     try {
-      console.log(`Workspaceing data for analysis ID: ${analysisId}`);
+      console.log(`Fetching data for analysis ID: ${analysisId}`);
       const response = await fetch(`/api/analysis/${analysisId}`);
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: "Failed to fetch analysis data" }));
@@ -196,19 +196,16 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
       const result = await response.json();
       console.log("API Success Response:", result);
 
-      // Pengecekan apakah result.data ada dan bukan string
       if (result && result.data && typeof result.data !== 'string') {
         setData(result.data);
         setAnalystNotes(result.data.analystNotes || "");
         if (result.data.status === 'Processing' || result.data.status === 'Pending') {
-          // Jika masih processing, set timeout untuk refresh
-          setTimeout(fetchData, 15000); // Refresh setiap 15 detik
+          setTimeout(fetchData, 15000); 
         }
       } else if (result && result.data && typeof result.data === 'string') {
-        // Jika data adalah string (misalnya, pesan error atau status dari backend API OpenAI)
         setError(`Analysis status or error: ${result.data}`);
-        setData(null); // Atau set state yang sesuai untuk menampilkan pesan ini
-      } else if (result && result.message) { // Jika ada pesan umum
+        setData(null); 
+      } else if (result && result.message) { 
         setError(result.message);
         setData(null);
       } else {
@@ -223,15 +220,25 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
     } finally {
       setIsLoading(false);
     }
-  }, [analysisId]);
+  }, [analysisId]); // Removed fetchData from dependencies as it causes infinite loop with setTimeout
 
   useEffect(() => {
-    if (!initialServerData && !initialError) { // Hanya fetch jika tidak ada data server awal
-      fetchData();
-    } else if (initialServerData?.status === 'Processing' || initialServerData?.status === 'Pending') {
-      setTimeout(fetchData, 15000); // Mulai polling jika status awal adalah processing
-    }
-  }, [fetchData, initialServerData, initialError]);
+    let timeoutId: NodeJS.Timeout;
+    const performFetch = () => {
+      if (!initialServerData && !initialError) {
+        fetchData();
+      } else if (initialServerData?.status === 'Processing' || initialServerData?.status === 'Pending') {
+        timeoutId = setTimeout(fetchData, 15000);
+      }
+    };
+
+    performFetch();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId); // Cleanup timeout on component unmount
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchData is memoized and stable, initialServerData and initialError are props
+  }, [initialServerData, initialError, analysisId]); // Added analysisId as fetchData depends on it, and fetchData itself to re-run if it changes (though it shouldn't if memoized correctly)
 
 
   const onPieEnter = useCallback((_: any, index: number) => {
@@ -250,7 +257,6 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
         const errorData = await response.json().catch(() => ({ message: "Failed to save notes" }));
         throw new Error(errorData.message || "Failed to save notes");
       }
-      // Berikan feedback sukses jika perlu
       console.log("Notes saved successfully");
       setData(prevData => prevData ? { ...prevData, analystNotes: analystNotes } : null);
     } catch (err: any) {
@@ -282,31 +288,31 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
           content += `Threat Analysis:\n${data.threatAnalysis || 'N/A'}\n\n`;
           content += `Anomaly Detection:\n${data.anomalyDetection || 'N/A'}\n\n`;
           content += `Recommendations:\n${data.recommendations || 'N/A'}\n\n`;
-          // Tambahkan detail lain jika perlu
           fileName += ".txt";
           contentType = "text/plain";
           break;
         case 'csv_alerts':
           if (data.alerts && data.alerts.length > 0) {
             const header = Object.keys(data.alerts[0]).join(',');
-            const rows = data.alerts.map(alert => Object.values(alert).join(','));
+            const rows = data.alerts.map(alert => Object.values(alert).map(val => `"${String(val).replace(/"/g, '""')}"`).join(','));
             content = `${header}\n${rows.join('\n')}`;
             fileName += "_alerts.csv";
             contentType = "text/csv";
           } else {
-            alert("No alert data to export.");
+            // Use a more user-friendly way to show this message, e.g., a toast notification
+            console.warn("No alert data to export."); 
             return;
           }
           break;
         case 'csv_conversations':
           if (data.topConversations && data.topConversations.length > 0) {
             const header = Object.keys(data.topConversations[0]).join(',');
-            const rows = data.topConversations.map(conv => Object.values(conv).join(','));
+            const rows = data.topConversations.map(conv => Object.values(conv).map(val => `"${String(val).replace(/"/g, '""')}"`).join(','));
             content = `${header}\n${rows.join('\n')}`;
             fileName += "_conversations.csv";
             contentType = "text/csv";
           } else {
-            alert("No conversation data to export.");
+            console.warn("No conversation data to export.");
             return;
           }
           break;
@@ -323,7 +329,8 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
 
     } catch (exportError: any) {
       console.error("Export error:", exportError);
-      alert(`Failed to export data: ${exportError.message}`);
+      // Use a more user-friendly way to show this message
+      console.error(`Failed to export data: ${exportError.message}`);
     }
   };
 
@@ -338,10 +345,9 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
       .then(() => console.log('Successful share'))
       .catch((error) => console.log('Error sharing', error));
     } else {
-      // Fallback untuk browser yang tidak mendukung Web Share API
       navigator.clipboard.writeText(window.location.href)
-        .then(() => alert("Link copied to clipboard!"))
-        .catch(() => alert("Could not copy link. Please copy it manually."));
+        .then(() => console.log("Link copied to clipboard!")) // Replace alert with console or toast
+        .catch(() => console.error("Could not copy link.")); // Replace alert with console or toast
     }
   };
 
@@ -349,20 +355,18 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
     window.print();
   };
 
-
-  // ----- Loading, Error, dan No Data States -----
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
         <div className="text-center">
           <Activity className="w-16 h-16 text-blue-500 animate-spin mx-auto mb-4" />
           <h2 className="text-2xl font-semibold mb-2">Processing Analysis...</h2>
-          <p className="text-gray-600 mb-4">
-            The AI is meticulously examining the PCAP file. This might take a few moments, especially for larger files or complex traffic.
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
+            The AI is meticulously examining the PCAP file. This might take a few moments.
           </p>
-          <Progress value={data?.status === 'Processing' ? 50 : 25} className="w-full max-w-md mx-auto" />
-           {data?.status && <p className="mt-2 text-sm text-gray-500">Status: {data.status}</p>}
-          <p className="mt-4 text-sm text-gray-500">Analysis ID: {analysisId}</p>
+          <Progress value={data?.status === 'Processing' ? 50 : (data?.status === 'Pending' ? 25 : 10)} className="w-full max-w-md mx-auto" />
+           {data?.status && <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Status: {data.status}</p>}
+          <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Analysis ID: {analysisId}</p>
         </div>
       </div>
     );
@@ -390,7 +394,10 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
         <Info className="h-4 w-4" />
         <AlertTitle>No Data Available</AlertTitle>
         <AlertDescription>
-          <p>Analysis data could not be loaded or is not available for ID: {analysisId}.</p>
+          <p>Analysis data could not be loaded or is not available for ID: {analysisId}. It might still be processing or an issue occurred.</p>
+           { (initialServerData?.status === 'Processing' || initialServerData?.status === 'Pending') &&
+             <p className="my-2">The analysis is currently: <strong>{initialServerData?.status}</strong>. Please wait or try refreshing.</p>
+           }
           <Button onClick={fetchData} variant="outline" className="mt-4">
             <RefreshCw className="mr-2 h-4 w-4" /> Retry
           </Button>
@@ -399,29 +406,25 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
     );
   }
 
-  // ----- Tampilan Utama Setelah Data AI Analysis Diterima -----
-  // Baris 340
   return (
-    <TooltipProvider> {/* Baris 341 - Sekarang sudah diimpor */}
-      <div className="space-y-8"> {/* Baris 342 */}
-        {/* ... (sisa JSX dari versi terakhir yang sudah diimprove UI-nya) ... */}
-        {/* Card Ringkasan Analisis */}
+    <TooltipProvider> 
+      <div className="space-y-8 p-4 md:p-6">
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
-          <CardHeader className="bg-gray-50 dark:bg-gray-800 rounded-t-lg">
-            <div className="flex items-center justify-between">
+          <CardHeader className="bg-gray-50 dark:bg-gray-800 rounded-t-lg p-4 md:p-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <CardTitle className="text-2xl font-bold text-gray-800 dark:text-white flex items-center">
-                  <FileText className="mr-3 h-7 w-7 text-blue-600" />
-                  AI Analysis Report: <span className="ml-2 text-blue-600 dark:text-blue-400">{data.fileName || "N/A"}</span>
+                <CardTitle className="text-xl md:text-2xl font-bold text-gray-800 dark:text-white flex items-center">
+                  <FileText className="mr-2 md:mr-3 h-6 w-6 md:h-7 md:w-7 text-blue-600 dark:text-blue-400" />
+                  AI Analysis: <span className="ml-1 md:ml-2 text-blue-600 dark:text-blue-400 truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-lg xl:max-w-xl" title={data.fileName || "N/A"}>{data.fileName || "N/A"}</span>
                 </CardTitle>
-                <CardDescription className="text-gray-600 dark:text-gray-400">
-                  AI-generated insights from PCAP file. Analysis ID: {analysisId}
+                <CardDescription className="text-xs md:text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  ID: {analysisId}
                 </CardDescription>
               </div>
-              <div className="flex space-x-2">
+              <div className="flex space-x-1 sm:space-x-2 self-start sm:self-center">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" onClick={() => handleExport('json')}>
+                    <Button variant="outline" size="icon" onClick={() => handleExport('json')} className="h-8 w-8 sm:h-9 sm:w-9">
                       <Download className="h-4 w-4" />
                       <span className="sr-only">Export JSON</span>
                     </Button>
@@ -430,7 +433,7 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
                 </Tooltip>
                  <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" onClick={() => handleExport('txt')}>
+                    <Button variant="outline" size="icon" onClick={() => handleExport('txt')} className="h-8 w-8 sm:h-9 sm:w-9">
                       <FileText className="h-4 w-4" />
                       <span className="sr-only">Export TXT</span>
                     </Button>
@@ -439,7 +442,7 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" onClick={handleShare}>
+                    <Button variant="outline" size="icon" onClick={handleShare} className="h-8 w-8 sm:h-9 sm:w-9">
                       <Share2 className="h-4 w-4" />
                       <span className="sr-only">Share</span>
                     </Button>
@@ -448,7 +451,7 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="outline" size="icon" onClick={handlePrint}>
+                    <Button variant="outline" size="icon" onClick={handlePrint} className="h-8 w-8 sm:h-9 sm:w-9">
                       <Printer className="h-4 w-4" />
                       <span className="sr-only">Print</span>
                     </Button>
@@ -457,7 +460,7 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                     <Button variant="ghost" size="icon" onClick={fetchData} disabled={isLoading}>
+                     <Button variant="ghost" size="icon" onClick={fetchData} disabled={isLoading} className="h-8 w-8 sm:h-9 sm:w-9">
                         <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
                         <span className="sr-only">Refresh Data</span>
                       </Button>
@@ -466,517 +469,374 @@ export default function AiInsights({ analysisId, initialData: initialServerData,
                 </Tooltip>
               </div>
             </div>
-            <div className="mt-2 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <div className="mt-3 md:mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-2 text-xs md:text-sm text-gray-500 dark:text-gray-400">
                 <p><strong>File Size:</strong> {data.fileSize || "N/A"}</p>
                 <p><strong>Uploaded:</strong> {data.uploadDate ? new Date(data.uploadDate).toLocaleString() : "N/A"}</p>
                 <p><strong>Capture Start:</strong> {data.captureStartTime ? new Date(data.captureStartTime).toLocaleString() : "N/A"}</p>
                 <p><strong>Capture End:</strong> {data.captureEndTime ? new Date(data.captureEndTime).toLocaleString() : "N/A"}</p>
                 <p><strong>Analysis Took:</strong> {data.analysisDuration || "N/A"}</p>
-                <p><strong>Status:</strong> <span className={`font-semibold ${data.status === 'Completed' ? 'text-green-600' : data.status === 'Error' ? 'text-red-600' : 'text-yellow-600'}`}>{data.status || "N/A"}</span></p>
+                <p><strong>Status:</strong> <span className={`font-semibold ${data.status === 'Completed' ? 'text-green-600 dark:text-green-400' : data.status === 'Error' ? 'text-red-600 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>{data.status || "N/A"}</span></p>
             </div>
           </CardHeader>
 
-          <CardContent className="pt-6">
+          <CardContent className="pt-4 md:pt-6">
             <Tabs value={currentTab} onValueChange={setCurrentTab} className="w-full">
-              <ScrollArea className="w-full whitespace-nowrap rounded-md">
-                <TabsList className="mb-4 flex-nowrap">
-                  <TabsTrigger value="summary" className="flex items-center"><Info className="mr-2 h-4 w-4" />Summary & Overview</TabsTrigger>
-                  <TabsTrigger value="threats" className="flex items-center"><Shield className="mr-2 h-4 w-4" />Threat Analysis</TabsTrigger>
-                  <TabsTrigger value="anomalies" className="flex items-center"><AlertCircle className="mr-2 h-4 w-4" />Anomalies</TabsTrigger>
-                  <TabsTrigger value="recommendations" className="flex items-center"><MessageSquare className="mr-2 h-4 w-4" />Recommendations</TabsTrigger>
-                  <TabsTrigger value="visuals" className="flex items-center"><BarChart2 className="mr-2 h-4 w-4" />Visualizations</TabsTrigger>
-                  <TabsTrigger value="conversations" className="flex items-center"><Users className="mr-2 h-4 w-4" />Conversations</TabsTrigger>
-                  <TabsTrigger value="alerts" className="flex items-center"><AlertCircle className="mr-2 h-4 w-4" />Alerts</TabsTrigger>
-                  <TabsTrigger value="packets" className="flex items-center"><Maximize2 className="mr-2 h-4 w-4" />Packet Samples</TabsTrigger>
-                  {data.performanceMetrics && <TabsTrigger value="performance" className="flex items-center"><Activity className="mr-2 h-4 w-4" />Performance</TabsTrigger>}
-                  {data.geoIpInformation && data.geoIpInformation.length > 0 && <TabsTrigger value="geoip" className="flex items-center"><ExternalLink className="mr-2 h-4 w-4" />GeoIP</TabsTrigger>}
-                  {data.attackPatterns && data.attackPatterns.length > 0 && <TabsTrigger value="attack_patterns" className="flex items-center"><Shield className="mr-2 h-4 w-4" />Attack Patterns</TabsTrigger>}
-                   {data.dnsQueries && data.dnsQueries.length > 0 && <TabsTrigger value="dns">DNS Queries</TabsTrigger>}
-                  {data.httpRequests && data.httpRequests.length > 0 && <TabsTrigger value="http">HTTP Requests</TabsTrigger>}
-                  {data.tlsHandshakes && data.tlsHandshakes.length > 0 && <TabsTrigger value="tls">TLS Handshakes</TabsTrigger>}
-                  {data.flowData && data.flowData.length > 0 && <TabsTrigger value="flow">Flow Data</TabsTrigger>}
-                  {data.fileExtracts && data.fileExtracts.length > 0 && <TabsTrigger value="files">File Extracts</TabsTrigger>}
+              <ScrollArea className="w-full whitespace-nowrap rounded-md border-b dark:border-gray-700">
+                <TabsList className="mb-0 flex-nowrap px-1 -mx-1">
+                  <TabsTrigger value="summary" className="flex items-center text-xs sm:text-sm"><Info className="mr-1 sm:mr-2 h-4 w-4" />Summary</TabsTrigger>
+                  <TabsTrigger value="threats" className="flex items-center text-xs sm:text-sm"><Shield className="mr-1 sm:mr-2 h-4 w-4" />Threats</TabsTrigger>
+                  <TabsTrigger value="anomalies" className="flex items-center text-xs sm:text-sm"><AlertCircle className="mr-1 sm:mr-2 h-4 w-4" />Anomalies</TabsTrigger>
+                  <TabsTrigger value="recommendations" className="flex items-center text-xs sm:text-sm"><MessageSquare className="mr-1 sm:mr-2 h-4 w-4" />Actions</TabsTrigger>
+                  <TabsTrigger value="visuals" className="flex items-center text-xs sm:text-sm"><BarChart2 className="mr-1 sm:mr-2 h-4 w-4" />Visuals</TabsTrigger>
+                  <TabsTrigger value="conversations" className="flex items-center text-xs sm:text-sm"><Users className="mr-1 sm:mr-2 h-4 w-4" />Talkers</TabsTrigger>
+                  <TabsTrigger value="alerts" className="flex items-center text-xs sm:text-sm"><AlertCircle className="mr-1 sm:mr-2 h-4 w-4" />Alerts</TabsTrigger>
+                  <TabsTrigger value="packets" className="flex items-center text-xs sm:text-sm"><Maximize2 className="mr-1 sm:mr-2 h-4 w-4" />Packets</TabsTrigger>
+                  {data.performanceMetrics && <TabsTrigger value="performance" className="flex items-center text-xs sm:text-sm"><Activity className="mr-1 sm:mr-2 h-4 w-4" />Perf.</TabsTrigger>}
+                  {data.geoIpInformation && data.geoIpInformation.length > 0 && <TabsTrigger value="geoip" className="flex items-center text-xs sm:text-sm"><ExternalLink className="mr-1 sm:mr-2 h-4 w-4" />GeoIP</TabsTrigger>}
+                  {data.attackPatterns && data.attackPatterns.length > 0 && <TabsTrigger value="attack_patterns" className="flex items-center text-xs sm:text-sm"><Shield className="mr-1 sm:mr-2 h-4 w-4" />Patterns</TabsTrigger>}
+                   {data.dnsQueries && data.dnsQueries.length > 0 && <TabsTrigger value="dns" className="text-xs sm:text-sm">DNS</TabsTrigger>}
+                  {data.httpRequests && data.httpRequests.length > 0 && <TabsTrigger value="http" className="text-xs sm:text-sm">HTTP</TabsTrigger>}
+                  {data.tlsHandshakes && data.tlsHandshakes.length > 0 && <TabsTrigger value="tls" className="text-xs sm:text-sm">TLS</TabsTrigger>}
+                  {data.flowData && data.flowData.length > 0 && <TabsTrigger value="flow" className="text-xs sm:text-sm">Flows</TabsTrigger>}
+                  {data.fileExtracts && data.fileExtracts.length > 0 && <TabsTrigger value="files" className="text-xs sm:text-sm">Files</TabsTrigger>}
                 </TabsList>
                 <ScrollBar orientation="horizontal" />
               </ScrollArea>
 
-
-              {/* Tab Content: Summary */}
-              <TabsContent value="summary">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center"><Info className="mr-2 text-blue-500" /> Overall Summary</CardTitle>
-                  </CardHeader>
-                  <CardContent className="prose dark:prose-invert max-w-none">
-                    <p>{data.summary || "No summary provided."}</p>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Tab Content: Threat Analysis */}
-              <TabsContent value="threats">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center"><Shield className="mr-2 text-red-500" /> Threat Intelligence</CardTitle>
-                  </CardHeader>
-                  <CardContent className="prose dark:prose-invert max-w-none">
-                    <p>{data.threatAnalysis || "No specific threats identified or analysis available."}</p>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Tab Content: Anomaly Detection */}
-              <TabsContent value="anomalies">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center"><AlertCircle className="mr-2 text-yellow-500" /> Anomaly Detection</CardTitle>
-                  </CardHeader>
-                  <CardContent className="prose dark:prose-invert max-w-none">
-                    <p>{data.anomalyDetection || "No significant anomalies detected or analysis available."}</p>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Tab Content: Recommendations */}
-              <TabsContent value="recommendations">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center"><MessageSquare className="mr-2 text-green-500" /> Recommendations</CardTitle>
-                  </CardHeader>
-                  <CardContent className="prose dark:prose-invert max-w-none">
-                    <p>{data.recommendations || "No specific recommendations available."}</p>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Tab Content: Visualizations */}
-              <TabsContent value="visuals" className="space-y-6">
-                {data.protocolDistribution && data.protocolDistribution.length > 0 && (
+              <div className="mt-4 md:mt-6"> {/* Added padding for content below tabslist */}
+                <TabsContent value="summary">
                   <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center"><PieChartIcon className="mr-2 text-purple-500" /> Protocol Distribution</CardTitle>
-                    </CardHeader>
-                    <CardContent style={{ width: '100%', height: 400 }}>
-                      <ResponsiveContainer>
-                        <PieChart>
-                          <Pie
-                            activeIndex={activePieIndex}
-                            activeShape={renderActiveShape}
-                            data={data.protocolDistribution}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={80} // Meningkatkan innerRadius agar tidak terlalu tipis
-                            outerRadius={120} // Meningkatkan outerRadius
-                            fill="#8884d8"
-                            dataKey="value"
-                            onMouseEnter={onPieEnter}
-                          >
-                            {data.protocolDistribution.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.fill || COLORS[index % COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <RechartsTooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                )}
-                 {/* Add other charts here if needed, e.g., traffic over time */}
-              </TabsContent>
-
-              {/* Tab Content: Top Conversations */}
-              <TabsContent value="conversations">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center"><Users className="mr-2 text-indigo-500" /> Top Conversations</CardTitle>
-                    <CardDescription>
-                      Key network conversations identified in the PCAP.
-                       <Button variant="outline" size="sm" className="ml-2" onClick={() => handleExport('csv_conversations')}>Export Conversations (CSV)</Button>
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-[400px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Source IP</TableHead>
-                            <TableHead>Destination IP</TableHead>
-                            <TableHead>Protocol</TableHead>
-                            <TableHead className="text-right">Packets</TableHead>
-                            <TableHead className="text-right">Bytes</TableHead>
-                            <TableHead>Start Time</TableHead>
-                            <TableHead>End Time</TableHead>
-                            <TableHead>Duration</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.topConversations && data.topConversations.length > 0 ? (
-                            data.topConversations.map((convo) => (
-                              <TableRow key={convo.id || `${convo.sourceIp}-${convo.destinationIp}-${convo.protocol}`}>
-                                <TableCell>{convo.sourceIp}</TableCell>
-                                <TableCell>{convo.destinationIp}</TableCell>
-                                <TableCell>{convo.protocol}</TableCell>
-                                <TableCell className="text-right">{convo.packets}</TableCell>
-                                <TableCell className="text-right">{convo.bytes}</TableCell>
-                                <TableCell>{convo.startTime ? new Date(convo.startTime).toLocaleString() : 'N/A'}</TableCell>
-                                <TableCell>{convo.endTime ? new Date(convo.endTime).toLocaleString() : 'N/A'}</TableCell>
-                                <TableCell>{convo.duration || 'N/A'}</TableCell>
-                              </TableRow>
-                            ))
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={8} className="text-center">No conversation data available.</TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Tab Content: Alerts */}
-              <TabsContent value="alerts">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center"><AlertCircle className="mr-2 text-orange-500" /> Security Alerts</CardTitle>
-                     <CardDescription>
-                      Potential security events and notable observations.
-                       <Button variant="outline" size="sm" className="ml-2" onClick={() => handleExport('csv_alerts')}>Export Alerts (CSV)</Button>
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {data.alerts && data.alerts.length > 0 ? (
-                      <Accordion type="single" collapsible className="w-full">
-                        {data.alerts.map((alert) => (
-                          <AccordionItem value={alert.id || alert.timestamp + alert.description.slice(0,10)} key={alert.id || alert.timestamp + alert.description.slice(0,10)}>
-                            <AccordionTrigger className={`flex justify-between ${
-                                alert.severity === 'Critical' ? 'text-red-700 dark:text-red-500' :
-                                alert.severity === 'High' ? 'text-red-600 dark:text-red-400' :
-                                alert.severity === 'Medium' ? 'text-yellow-600 dark:text-yellow-400' :
-                                'text-blue-600 dark:text-blue-400'
-                              }`}>
-                              <div className="flex items-center">
-                                <AlertCircle className={`mr-2 h-5 w-5 ${
-                                  alert.severity === 'Critical' ? 'text-red-700' :
-                                  alert.severity === 'High' ? 'text-red-600' :
-                                  alert.severity === 'Medium' ? 'text-yellow-600' :
-                                  'text-blue-600'
-                                }`} />
-                                <span>{alert.description.substring(0, 80)}{alert.description.length > 80 && '...'}</span>
-                              </div>
-                              <span className={`text-sm font-medium px-2 py-1 rounded-md ${
-                                alert.severity === 'Critical' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
-                                alert.severity === 'High' ? 'bg-red-100 text-red-700 dark:bg-red-800 dark:text-red-300' :
-                                alert.severity === 'Medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-700 dark:text-yellow-200' :
-                                'bg-blue-100 text-blue-800 dark:bg-blue-700 dark:text-blue-200'
-                              }`}>{alert.severity}</span>
-                            </AccordionTrigger>
-                            <AccordionContent className="space-y-1 pl-8 text-sm">
-                              <p><strong>Timestamp:</strong> {new Date(alert.timestamp).toLocaleString()}</p>
-                              <p><strong>Description:</strong> {alert.description}</p>
-                              {alert.sourceIp && <p><strong>Source IP:</strong> {alert.sourceIp}</p>}
-                              {alert.destinationIp && <p><strong>Destination IP:</strong> {alert.destinationIp}</p>}
-                              {alert.protocol && <p><strong>Protocol:</strong> {alert.protocol}</p>}
-                              {alert.signature && <p><strong>Signature/Rule:</strong> {alert.signature}</p>}
-                            </AccordionContent>
-                          </AccordionItem>
-                        ))}
-                      </Accordion>
-                    ) : (
-                      <p>No alerts to display.</p>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Tab Content: Detailed Packet Sample */}
-              <TabsContent value="packets">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center"><Maximize2 className="mr-2 text-teal-500" /> Detailed Packet Samples</CardTitle>
-                    <CardDescription>A sample of individual packets for closer inspection.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-[500px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Timestamp</TableHead>
-                            <TableHead>Source</TableHead>
-                            <TableHead>Destination</TableHead>
-                            <TableHead>Protocol</TableHead>
-                            <TableHead className="text-right">Length</TableHead>
-                            <TableHead>Summary</TableHead>
-                            <TableHead>Payload</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.detailedPacketSample && data.detailedPacketSample.length > 0 ? (
-                            data.detailedPacketSample.map((packet) => (
-                              <TableRow key={packet.id || packet.timestamp + packet.summary.slice(0,10)}>
-                                <TableCell>{new Date(packet.timestamp).toLocaleString()}</TableCell>
-                                <TableCell>{packet.source}</TableCell>
-                                <TableCell>{packet.destination}</TableCell>
-                                <TableCell>{packet.protocol}</TableCell>
-                                <TableCell className="text-right">{packet.length}</TableCell>
-                                <TableCell className="max-w-xs truncate">{packet.summary}</TableCell>
-                                <TableCell>
-                                  {packet.payload && (
-                                    <Button variant="link" size="sm" onClick={() => {setSelectedPayload(packet.payload); setShowRawPayloadModal(true);}}>View Payload</Button>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          ) : (
-                            <TableRow>
-                              <TableCell colSpan={7} className="text-center">No packet samples available.</TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* Tab Content: Performance Metrics */}
-              {data.performanceMetrics && (
-                <TabsContent value="performance">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center"><Activity className="mr-2 text-cyan-500" /> Performance Metrics</CardTitle>
-                    </CardHeader>
-                    <CardContent className="grid grid-cols-2 gap-4">
-                      <div><strong>Total Packets:</strong> {data.performanceMetrics.totalPackets.toLocaleString()}</div>
-                      <div><strong>Total Bytes:</strong> {data.performanceMetrics.totalBytes.toLocaleString()}</div>
-                      <div><strong>Capture Duration:</strong> {data.performanceMetrics.captureDuration}</div>
-                      <div><strong>Average Packet Rate:</strong> {data.performanceMetrics.averagePacketRate}</div>
-                    </CardContent>
+                    <CardHeader><CardTitle className="flex items-center text-lg"><Info className="mr-2 text-blue-500" /> Overall Summary</CardTitle></CardHeader>
+                    <CardContent className="prose dark:prose-invert max-w-none text-sm md:text-base"><p>{data.summary || "No summary provided."}</p></CardContent>
                   </Card>
                 </TabsContent>
-              )}
 
-              {/* Tab Content: GeoIP Information */}
-              {data.geoIpInformation && data.geoIpInformation.length > 0 && (
-                <TabsContent value="geoip">
+                <TabsContent value="threats">
                   <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center"><ExternalLink className="mr-2 text-lime-500" /> GeoIP Information</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Source IP</TableHead>
-                            <TableHead>Source Location</TableHead>
-                            <TableHead>Destination IP</TableHead>
-                            <TableHead>Destination Location</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {data.geoIpInformation.map((geo, index) => (
-                            <TableRow key={`${geo.sourceIp}-${geo.destinationIp}-${index}`}>
-                              <TableCell>{geo.sourceIp}</TableCell>
-                              <TableCell>{geo.sourceLocation || 'N/A'}</TableCell>
-                              <TableCell>{geo.destinationIp}</TableCell>
-                              <TableCell>{geo.destinationLocation || 'N/A'}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </CardContent>
+                    <CardHeader><CardTitle className="flex items-center text-lg"><Shield className="mr-2 text-red-500" /> Threat Intelligence</CardTitle></CardHeader>
+                    <CardContent className="prose dark:prose-invert max-w-none text-sm md:text-base"><p>{data.threatAnalysis || "No specific threats identified or analysis available."}</p></CardContent>
                   </Card>
                 </TabsContent>
-              )}
 
-              {/* Tab Content: Attack Patterns */}
-              {data.attackPatterns && data.attackPatterns.length > 0 && (
-                <TabsContent value="attack_patterns">
+                <TabsContent value="anomalies">
                   <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center"><Shield className="mr-2 text-rose-500" /> Known Attack Patterns</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Accordion type="single" collapsible className="w-full">
-                        {data.attackPatterns.map((pattern, index) => (
-                          <AccordionItem value={`pattern-${index}`} key={`pattern-${index}`}>
-                            <AccordionTrigger>{pattern.patternName}</AccordionTrigger>
-                            <AccordionContent>
-                              <p className="mb-2">{pattern.description}</p>
-                              <p><strong>Involved IPs:</strong> {pattern.involvedIps.join(', ')}</p>
-                            </AccordionContent>
-                          </AccordionItem>
-                        ))}
-                      </Accordion>
-                    </CardContent>
+                    <CardHeader><CardTitle className="flex items-center text-lg"><AlertCircle className="mr-2 text-yellow-500" /> Anomaly Detection</CardTitle></CardHeader>
+                    <CardContent className="prose dark:prose-invert max-w-none text-sm md:text-base"><p>{data.anomalyDetection || "No significant anomalies detected or analysis available."}</p></CardContent>
                   </Card>
                 </TabsContent>
-              )}
-              {/* DNS Queries Tab */}
-              {data.dnsQueries && data.dnsQueries.length > 0 && (
-                <TabsContent value="dns">
+
+                <TabsContent value="recommendations">
                   <Card>
-                    <CardHeader><CardTitle>DNS Queries</CardTitle></CardHeader>
+                    <CardHeader><CardTitle className="flex items-center text-lg"><MessageSquare className="mr-2 text-green-500" /> Recommended Actions</CardTitle></CardHeader>
+                    <CardContent className="prose dark:prose-invert max-w-none text-sm md:text-base"><p>{data.recommendations || "No specific recommendations available."}</p></CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="visuals" className="space-y-6">
+                  {data.protocolDistribution && data.protocolDistribution.length > 0 && (
+                    <Card>
+                      <CardHeader><CardTitle className="flex items-center text-lg"><PieChartIcon className="mr-2 text-purple-500" /> Protocol Distribution</CardTitle></CardHeader>
+                      <CardContent style={{ width: '100%', height: 300 }}>
+                        <ResponsiveContainer>
+                          <PieChart>
+                            <Pie
+                              activeIndex={activePieIndex}
+                              activeShape={renderActiveShape}
+                              data={data.protocolDistribution}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60} 
+                              outerRadius={100} 
+                              fill="#8884d8"
+                              dataKey="value"
+                              onMouseEnter={onPieEnter}
+                            >
+                              {data.protocolDistribution.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.fill || COLORS[index % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <RechartsTooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="conversations">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center text-lg"><Users className="mr-2 text-indigo-500" /> Top Conversations</CardTitle>
+                      <CardDescription className="text-xs sm:text-sm">
+                        Key network conversations.
+                        <Button variant="link" size="sm" className="ml-2 px-1 py-0 h-auto" onClick={() => handleExport('csv_conversations')}>Export CSV</Button>
+                      </CardDescription>
+                    </CardHeader>
                     <CardContent>
-                      <ScrollArea className="h-[400px]">
+                      <ScrollArea className="h-[400px] border rounded-md">
                         <Table>
-                          <TableHeader><TableRow><TableHead>Query</TableHead><TableHead>Type</TableHead><TableHead>Response</TableHead><TableHead>Server</TableHead></TableRow></TableHeader>
+                          <TableHeader><TableRow><TableHead>Src IP</TableHead><TableHead>Dst IP</TableHead><TableHead>Proto</TableHead><TableHead className="text-right">Pkts</TableHead><TableHead className="text-right">Bytes</TableHead></TableRow></TableHeader>
                           <TableBody>
-                            {data.dnsQueries.map((q, i) => (
-                              <TableRow key={i}><TableCell>{q.query}</TableCell><TableCell>{q.type}</TableCell><TableCell>{q.response || 'N/A'}</TableCell><TableCell>{q.server}</TableCell></TableRow>
-                            ))}
+                            {data.topConversations && data.topConversations.length > 0 ? (
+                              data.topConversations.map((convo) => (
+                                <TableRow key={convo.id || `${convo.sourceIp}-${convo.destinationIp}-${convo.protocol}`}>
+                                  <TableCell className="truncate max-w-[100px] sm:max-w-xs" title={convo.sourceIp}>{convo.sourceIp}</TableCell>
+                                  <TableCell className="truncate max-w-[100px] sm:max-w-xs" title={convo.destinationIp}>{convo.destinationIp}</TableCell>
+                                  <TableCell>{convo.protocol}</TableCell>
+                                  <TableCell className="text-right">{convo.packets.toLocaleString()}</TableCell>
+                                  <TableCell className="text-right">{convo.bytes.toLocaleString()}</TableCell>
+                                </TableRow>
+                              ))
+                            ) : ( <TableRow><TableCell colSpan={5} className="text-center h-24">No conversation data.</TableCell></TableRow> )}
                           </TableBody>
                         </Table>
                       </ScrollArea>
                     </CardContent>
                   </Card>
                 </TabsContent>
-              )}
 
-              {/* HTTP Requests Tab */}
-              {data.httpRequests && data.httpRequests.length > 0 && (
-                <TabsContent value="http">
+                <TabsContent value="alerts">
                   <Card>
-                    <CardHeader><CardTitle>HTTP Requests</CardTitle></CardHeader>
+                    <CardHeader>
+                      <CardTitle className="flex items-center text-lg"><AlertCircle className="mr-2 text-orange-500" /> Security Alerts</CardTitle>
+                       <CardDescription className="text-xs sm:text-sm">Potential security events.
+                        <Button variant="link" size="sm" className="ml-2 px-1 py-0 h-auto" onClick={() => handleExport('csv_alerts')}>Export CSV</Button>
+                       </CardDescription>
+                    </CardHeader>
                     <CardContent>
-                      <ScrollArea className="h-[400px]">
-                        <Table>
-                          <TableHeader><TableRow><TableHead>Host</TableHead><TableHead>Path</TableHead><TableHead>Method</TableHead><TableHead>User-Agent</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-                          <TableBody>
-                            {data.httpRequests.map((r, i) => (
-                              <TableRow key={i}><TableCell>{r.host}</TableCell><TableCell title={r.path} className="max-w-xs truncate">{r.path}</TableCell><TableCell>{r.method}</TableCell><TableCell title={r.userAgent} className="max-w-xs truncate">{r.userAgent || 'N/A'}</TableCell><TableCell>{r.statusCode || 'N/A'}</TableCell></TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </ScrollArea>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              )}
-
-              {/* TLS Handshakes Tab */}
-              {data.tlsHandshakes && data.tlsHandshakes.length > 0 && (
-                <TabsContent value="tls">
-                  <Card>
-                    <CardHeader><CardTitle>TLS Handshakes</CardTitle></CardHeader>
-                    <CardContent>
-                      <ScrollArea className="h-[400px]">
+                      {data.alerts && data.alerts.length > 0 ? (
                         <Accordion type="single" collapsible className="w-full">
-                          {data.tlsHandshakes.map((h, i) => (
-                            <AccordionItem value={`tls-${i}`} key={i}>
-                              <AccordionTrigger>Handshake: {h.clientHello.substring(0,30)}... to {h.serverHello.substring(0,30)}...</AccordionTrigger>
-                              <AccordionContent>
-                                <p><strong>Client Hello:</strong> {h.clientHello}</p>
-                                <p><strong>Server Hello:</strong> {h.serverHello}</p>
-                                <p><strong>Cipher Suite:</strong> {h.cipherSuite || 'N/A'}</p>
-                                <p><strong>TLS Version:</strong> {h.version || 'N/A'}</p>
+                          {data.alerts.map((alert) => (
+                            <AccordionItem value={alert.id || alert.timestamp + alert.description.slice(0,10)} key={alert.id || alert.timestamp + alert.description.slice(0,10)}>
+                              <AccordionTrigger className={`flex justify-between text-left text-sm hover:no-underline ${
+                                  alert.severity === 'Critical' ? 'text-red-700 dark:text-red-400' :
+                                  alert.severity === 'High' ? 'text-red-600 dark:text-red-500' :
+                                  alert.severity === 'Medium' ? 'text-yellow-600 dark:text-yellow-400' :
+                                  'text-blue-600 dark:text-blue-400'
+                                }`}>
+                                <div className="flex items-center flex-1 min-w-0">
+                                  <AlertCircle className={`mr-2 h-5 w-5 flex-shrink-0 ${
+                                    alert.severity === 'Critical' ? 'text-red-700 dark:text-red-400' :
+                                    alert.severity === 'High' ? 'text-red-600 dark:text-red-500' :
+                                    alert.severity === 'Medium' ? 'text-yellow-600 dark:text-yellow-400' :
+                                    'text-blue-600 dark:text-blue-400'
+                                  }`} />
+                                  <span className="truncate flex-1" title={alert.description}>{alert.description}</span>
+                                </div>
+                                <span className={`text-xs font-medium px-2 py-0.5 rounded-md ml-2 flex-shrink-0 ${
+                                  alert.severity === 'Critical' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
+                                  alert.severity === 'High' ? 'bg-red-100 text-red-700 dark:bg-red-800 dark:text-red-300' :
+                                  alert.severity === 'Medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-700 dark:text-yellow-200' :
+                                  'bg-blue-100 text-blue-800 dark:bg-blue-700 dark:text-blue-200'
+                                }`}>{alert.severity}</span>
+                              </AccordionTrigger>
+                              <AccordionContent className="space-y-1 pl-8 text-xs sm:text-sm dark:bg-gray-800 rounded-b-md p-3">
+                                <p><strong>Timestamp:</strong> {new Date(alert.timestamp).toLocaleString()}</p>
+                                <p><strong>Full Desc:</strong> {alert.description}</p>
+                                {alert.sourceIp && <p><strong>Src IP:</strong> {alert.sourceIp}</p>}
+                                {alert.destinationIp && <p><strong>Dst IP:</strong> {alert.destinationIp}</p>}
+                                {alert.protocol && <p><strong>Proto:</strong> {alert.protocol}</p>}
+                                {alert.signature && <p><strong>Sig:</strong> {alert.signature}</p>}
                               </AccordionContent>
                             </AccordionItem>
                           ))}
                         </Accordion>
-                      </ScrollArea>
+                      ) : ( <p className="text-center text-gray-500 dark:text-gray-400 py-4">No alerts to display.</p> )}
                     </CardContent>
                   </Card>
                 </TabsContent>
-              )}
 
-              {/* Flow Data Tab */}
-              {data.flowData && data.flowData.length > 0 && (
-                <TabsContent value="flow">
+                <TabsContent value="packets">
                   <Card>
-                    <CardHeader><CardTitle>Network Flows</CardTitle></CardHeader>
+                    <CardHeader>
+                      <CardTitle className="flex items-center text-lg"><Maximize2 className="mr-2 text-teal-500" /> Packet Samples</CardTitle>
+                      <CardDescription className="text-xs sm:text-sm">Individual packet details (sample).</CardDescription>
+                    </CardHeader>
                     <CardContent>
-                      <ScrollArea className="h-[400px]">
+                      <ScrollArea className="h-[500px] border rounded-md">
                         <Table>
-                          <TableHeader><TableRow><TableHead>Src IP</TableHead><TableHead>Dst IP</TableHead><TableHead>Src Port</TableHead><TableHead>Dst Port</TableHead><TableHead>Proto</TableHead><TableHead>Packets</TableHead><TableHead>Bytes</TableHead><TableHead>Duration (s)</TableHead></TableRow></TableHeader>
+                          <TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Src</TableHead><TableHead>Dst</TableHead><TableHead>Proto</TableHead><TableHead className="text-right">Len</TableHead><TableHead>Summary</TableHead><TableHead>Payload</TableHead></TableRow></TableHeader>
                           <TableBody>
-                            {data.flowData.map((f, i) => (
-                              <TableRow key={f.flowId || i}>
-                                <TableCell>{f.srcIp}</TableCell><TableCell>{f.dstIp}</TableCell>
-                                <TableCell>{f.srcPort}</TableCell><TableCell>{f.dstPort}</TableCell>
-                                <TableCell>{f.protocol}</TableCell><TableCell>{f.packets}</TableCell>
-                                <TableCell>{f.bytes}</TableCell><TableCell>{f.duration}</TableCell>
-                              </TableRow>
-                            ))}
+                            {data.detailedPacketSample && data.detailedPacketSample.length > 0 ? (
+                              data.detailedPacketSample.map((packet) => (
+                                <TableRow key={packet.id || packet.timestamp + packet.summary.slice(0,10)}>
+                                  <TableCell className="text-xs">{new Date(packet.timestamp).toLocaleTimeString()}</TableCell>
+                                  <TableCell className="truncate max-w-[80px] sm:max-w-xs" title={packet.source}>{packet.source}</TableCell>
+                                  <TableCell className="truncate max-w-[80px] sm:max-w-xs" title={packet.destination}>{packet.destination}</TableCell>
+                                  <TableCell>{packet.protocol}</TableCell>
+                                  <TableCell className="text-right">{packet.length}</TableCell>
+                                  <TableCell className="max-w-[150px] sm:max-w-xs truncate" title={packet.summary}>{packet.summary}</TableCell>
+                                  <TableCell>
+                                    {packet.payload && (
+                                      <Button variant="link" size="sm" className="px-1 py-0 h-auto text-xs" onClick={() => {setSelectedPayload(packet.payload); setShowRawPayloadModal(true);}}>View</Button>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            ) : ( <TableRow><TableCell colSpan={7} className="text-center h-24">No packet samples.</TableCell></TableRow> )}
                           </TableBody>
                         </Table>
                       </ScrollArea>
                     </CardContent>
                   </Card>
                 </TabsContent>
-              )}
 
-              {/* File Extracts Tab */}
-              {data.fileExtracts && data.fileExtracts.length > 0 && (
-                <TabsContent value="files">
-                  <Card>
-                    <CardHeader><CardTitle>Extracted Files</CardTitle></CardHeader>
-                    <CardContent>
-                      <ScrollArea className="h-[400px]">
-                        <Table>
-                          <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead>Size</TableHead><TableHead>Source IP</TableHead><TableHead>Dest IP</TableHead><TableHead>MD5</TableHead><TableHead>SHA1</TableHead></TableRow></TableHeader>
-                          <TableBody>
-                            {data.fileExtracts.map((f, i) => (
-                              <TableRow key={i}>
-                                <TableCell>{f.fileName}</TableCell><TableCell>{f.fileType}</TableCell>
-                                <TableCell>{f.size}</TableCell><TableCell>{f.sourceIp}</TableCell>
-                                <TableCell>{f.destinationIp}</TableCell>
-                                <TableCell className="font-mono text-xs">{f.md5sum || 'N/A'}</TableCell>
-                                <TableCell className="font-mono text-xs">{f.sha1sum || 'N/A'}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </ScrollArea>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              )}
+                {data.performanceMetrics && (
+                  <TabsContent value="performance">
+                    <Card>
+                      <CardHeader><CardTitle className="flex items-center text-lg"><Activity className="mr-2 text-cyan-500" /> Performance</CardTitle></CardHeader>
+                      <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm md:text-base">
+                        <div><strong>Total Packets:</strong> {data.performanceMetrics.totalPackets.toLocaleString()}</div>
+                        <div><strong>Total Bytes:</strong> {data.performanceMetrics.totalBytes.toLocaleString()}</div>
+                        <div><strong>Capture Duration:</strong> {data.performanceMetrics.captureDuration}</div>
+                        <div><strong>Avg Packet Rate:</strong> {data.performanceMetrics.averagePacketRate}</div>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                )}
 
+                {data.geoIpInformation && data.geoIpInformation.length > 0 && (
+                  <TabsContent value="geoip">
+                    <Card>
+                      <CardHeader><CardTitle className="flex items-center text-lg"><ExternalLink className="mr-2 text-lime-500" /> GeoIP Information</CardTitle></CardHeader>
+                      <CardContent>
+                        <ScrollArea className="h-[300px] border rounded-md">
+                          <Table>
+                            <TableHeader><TableRow><TableHead>Src IP</TableHead><TableHead>Src Location</TableHead><TableHead>Dst IP</TableHead><TableHead>Dst Location</TableHead></TableRow></TableHeader>
+                            <TableBody>
+                              {data.geoIpInformation.map((geo, index) => (
+                                <TableRow key={`${geo.sourceIp}-${geo.destinationIp}-${index}`}>
+                                  <TableCell>{geo.sourceIp}</TableCell>
+                                  <TableCell>{geo.sourceLocation || 'N/A'}</TableCell>
+                                  <TableCell>{geo.destinationIp}</TableCell>
+                                  <TableCell>{geo.destinationLocation || 'N/A'}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </ScrollArea>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                )}
+
+                {data.attackPatterns && data.attackPatterns.length > 0 && (
+                  <TabsContent value="attack_patterns">
+                    <Card>
+                      <CardHeader><CardTitle className="flex items-center text-lg"><Shield className="mr-2 text-rose-500" /> Attack Patterns</CardTitle></CardHeader>
+                      <CardContent>
+                        <Accordion type="single" collapsible className="w-full">
+                          {data.attackPatterns.map((pattern, index) => (
+                            <AccordionItem value={`pattern-${index}`} key={`pattern-${index}`}>
+                              <AccordionTrigger className="hover:no-underline text-sm">{pattern.patternName}</AccordionTrigger>
+                              <AccordionContent className="text-xs sm:text-sm dark:bg-gray-800 p-3 rounded-b-md">
+                                <p className="mb-1">{pattern.description}</p>
+                                <p><strong>Involved IPs:</strong> {pattern.involvedIps.join(', ')}</p>
+                              </AccordionContent>
+                            </AccordionItem>
+                          ))}
+                        </Accordion>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                )}
+                {data.dnsQueries && data.dnsQueries.length > 0 && (
+                  <TabsContent value="dns">
+                    <Card><CardHeader><CardTitle className="text-lg">DNS Queries</CardTitle></CardHeader>
+                    <CardContent><ScrollArea className="h-[400px] border rounded-md"><Table>
+                      <TableHeader><TableRow><TableHead>Query</TableHead><TableHead>Type</TableHead><TableHead>Response</TableHead><TableHead>Server</TableHead></TableRow></TableHeader>
+                      <TableBody>{data.dnsQueries.map((q, i) => (<TableRow key={i}><TableCell>{q.query}</TableCell><TableCell>{q.type}</TableCell><TableCell className="truncate max-w-[150px] sm:max-w-xs" title={q.response}>{q.response || 'N/A'}</TableCell><TableCell>{q.server}</TableCell></TableRow>))}</TableBody>
+                    </Table></ScrollArea></CardContent></Card>
+                  </TabsContent>
+                )}
+
+                {data.httpRequests && data.httpRequests.length > 0 && (
+                  <TabsContent value="http">
+                    <Card><CardHeader><CardTitle className="text-lg">HTTP Requests</CardTitle></CardHeader>
+                    <CardContent><ScrollArea className="h-[400px] border rounded-md"><Table>
+                      <TableHeader><TableRow><TableHead>Host</TableHead><TableHead>Path</TableHead><TableHead>Method</TableHead><TableHead>User-Agent</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                      <TableBody>{data.httpRequests.map((r, i) => (<TableRow key={i}><TableCell className="truncate max-w-[100px] sm:max-w-xs" title={r.host}>{r.host}</TableCell><TableCell title={r.path} className="truncate max-w-[100px] sm:max-w-xs">{r.path}</TableCell><TableCell>{r.method}</TableCell><TableCell title={r.userAgent} className="truncate max-w-[100px] sm:max-w-xs">{r.userAgent || 'N/A'}</TableCell><TableCell>{r.statusCode || 'N/A'}</TableCell></TableRow>))}</TableBody>
+                    </Table></ScrollArea></CardContent></Card>
+                  </TabsContent>
+                )}
+
+                {data.tlsHandshakes && data.tlsHandshakes.length > 0 && (
+                  <TabsContent value="tls">
+                    <Card><CardHeader><CardTitle className="text-lg">TLS Handshakes</CardTitle></CardHeader>
+                    <CardContent><ScrollArea className="h-[400px] border rounded-md"><Accordion type="single" collapsible className="w-full">
+                      {data.tlsHandshakes.map((h, i) => (<AccordionItem value={`tls-${i}`} key={i}><AccordionTrigger className="hover:no-underline text-sm truncate">HS: {h.clientHello.substring(0,20)}... to {h.serverHello.substring(0,20)}...</AccordionTrigger><AccordionContent className="text-xs sm:text-sm dark:bg-gray-800 p-3 rounded-b-md">
+                        <p><strong>Client:</strong> {h.clientHello}</p><p><strong>Server:</strong> {h.serverHello}</p>
+                        <p><strong>Cipher:</strong> {h.cipherSuite || 'N/A'}</p><p><strong>Ver:</strong> {h.version || 'N/A'}</p>
+                      </AccordionContent></AccordionItem>))}
+                    </Accordion></ScrollArea></CardContent></Card>
+                  </TabsContent>
+                )}
+
+                {data.flowData && data.flowData.length > 0 && (
+                  <TabsContent value="flow">
+                    <Card><CardHeader><CardTitle className="text-lg">Network Flows</CardTitle></CardHeader>
+                    <CardContent><ScrollArea className="h-[400px] border rounded-md"><Table>
+                      <TableHeader><TableRow><TableHead>Src IP</TableHead><TableHead>Dst IP</TableHead><TableHead>S Port</TableHead><TableHead>D Port</TableHead><TableHead>Proto</TableHead><TableHead>Pkts</TableHead><TableHead>Bytes</TableHead><TableHead>Dur(s)</TableHead></TableRow></TableHeader>
+                      <TableBody>{data.flowData.map((f, i) => (<TableRow key={f.flowId || i}>
+                        <TableCell>{f.srcIp}</TableCell><TableCell>{f.dstIp}</TableCell><TableCell>{f.srcPort}</TableCell><TableCell>{f.dstPort}</TableCell>
+                        <TableCell>{f.protocol}</TableCell><TableCell>{f.packets}</TableCell><TableCell>{f.bytes}</TableCell><TableCell>{f.duration}</TableCell>
+                      </TableRow>))}</TableBody>
+                    </Table></ScrollArea></CardContent></Card>
+                  </TabsContent>
+                )}
+
+                {data.fileExtracts && data.fileExtracts.length > 0 && (
+                  <TabsContent value="files">
+                    <Card><CardHeader><CardTitle className="text-lg">Extracted Files</CardTitle></CardHeader>
+                    <CardContent><ScrollArea className="h-[400px] border rounded-md"><Table>
+                      <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead>Size</TableHead><TableHead>Src IP</TableHead><TableHead>Dst IP</TableHead><TableHead>MD5</TableHead><TableHead>SHA1</TableHead></TableRow></TableHeader>
+                      <TableBody>{data.fileExtracts.map((f, i) => (<TableRow key={i}>
+                        <TableCell className="truncate max-w-[100px] sm:max-w-xs" title={f.fileName}>{f.fileName}</TableCell><TableCell>{f.fileType}</TableCell><TableCell>{f.size}</TableCell>
+                        <TableCell>{f.sourceIp}</TableCell><TableCell>{f.destinationIp}</TableCell>
+                        <TableCell className="font-mono text-xs truncate max-w-[80px] sm:max-w-xs" title={f.md5sum}>{f.md5sum || 'N/A'}</TableCell>
+                        <TableCell className="font-mono text-xs truncate max-w-[80px] sm:max-w-xs" title={f.sha1sum}>{f.sha1sum || 'N/A'}</TableCell>
+                      </TableRow>))}</TableBody>
+                    </Table></ScrollArea></CardContent></Card>
+                  </TabsContent>
+                )}
+              </div>
             </Tabs>
           </CardContent>
         </Card>
 
-        {/* Analyst Notes Section */}
         <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300">
           <CardHeader>
-            <CardTitle className="flex items-center"><Edit3 className="mr-2 h-5 w-5" /> Analyst Notes</CardTitle>
-            <CardDescription>Add your observations or comments about this analysis.</CardDescription>
+            <CardTitle className="flex items-center text-lg"><Edit3 className="mr-2 h-5 w-5" /> Analyst Notes</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Add your observations or comments.</CardDescription>
           </CardHeader>
           <CardContent>
             <Textarea
               value={analystNotes}
               onChange={(e) => setAnalystNotes(e.target.value)}
               placeholder="Type your notes here..."
-              rows={6}
-              className="mb-4"
+              rows={5}
+              className="mb-3 text-sm md:text-base"
             />
-            <Button onClick={handleSaveNotes} disabled={isSavingNotes}>
+            <Button onClick={handleSaveNotes} disabled={isSavingNotes} size="sm">
               {isSavingNotes ? "Saving..." : "Save Notes"}
             </Button>
           </CardContent>
         </Card>
 
-        {/* Raw Payload Modal */}
         {showRawPayloadModal && (
           <Dialog open={showRawPayloadModal} onOpenChange={setShowRawPayloadModal}>
-            <DialogContent className="sm:max-w-[600px]">
+            <DialogContent className="sm:max-w-xl md:max-w-2xl lg:max-w-4xl">
               <DialogHeader>
                 <DialogTitle>Raw Packet Payload (Hex Dump)</DialogTitle>
-                <DialogDescription>
-                  This is the hexadecimal representation of the packet payload.
-                </DialogDescription>
+                <DialogDescription>Hexadecimal representation of the packet payload.</DialogDescription>
               </DialogHeader>
-              <ScrollArea className="max-h-[400px] p-2 border rounded">
-                <pre className="text-xs whitespace-pre-wrap break-all">
+              <ScrollArea className="max-h-[60vh] p-2 border rounded bg-gray-50 dark:bg-gray-800">
+                <pre className="text-xs whitespace-pre-wrap break-all font-mono">
                   {selectedPayload || "No payload data."}
                 </pre>
               </ScrollArea>
               <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline">Close</Button>
-                </DialogClose>
+                <DialogClose asChild><Button type="button" variant="outline">Close</Button></DialogClose>
               </DialogFooter>
             </DialogContent>
           </Dialog>
