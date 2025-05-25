@@ -2,8 +2,7 @@
 import Link from 'next/link'
 import { Button } from "@/components/ui/button" // Biarkan alias untuk komponen lain jika bekerja
 import { AlertTriangle, Home } from 'lucide-react'
-// PERUBAHAN: Gunakan path relatif untuk Skeleton sebagai tes
-import { Skeleton } from "../components/ui/skeleton"; 
+// PERUBAHAN: Impor Skeleton dihapus sepenuhnya untuk diagnostik
 
 export default function NotFound() {
   return (
@@ -15,7 +14,7 @@ export default function NotFound() {
         Oops! The page you're looking for doesn't seem to exist. It might have been moved, deleted, or maybe you just mistyped the URL.
       </p>
       
-      {/* Contoh penggunaan Skeleton jika diperlukan di sini */}
+      {/* Contoh penggunaan Skeleton yang sebelumnya di-comment juga sudah tidak relevan jika impor dihapus */}
       {/* <div className="space-y-2 w-full max-w-sm mb-8">
         <p className="text-sm text-slate-500 dark:text-slate-400">Loading placeholder:</p>
         <Skeleton className="h-8 w-full bg-slate-300 dark:bg-slate-700" />
