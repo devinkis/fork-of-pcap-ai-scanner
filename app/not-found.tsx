@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Home } from 'lucide-react'
-import { Skeleton } from "@/components/ui/skeleton"; // Pastikan impor ini ada dan benar
+import { Skeleton } from "@/components/ui/skeleton"; // Pastikan impor ini ada dan path-nya benar
 
 export default function NotFound() {
   return (
@@ -14,16 +14,10 @@ export default function NotFound() {
         Oops! The page you're looking for doesn't seem to exist. It might have been moved, deleted, or maybe you just mistyped the URL.
       </p>
       
-      {/* Baris berikut adalah contoh jika Anda ingin menggunakan Skeleton di sini.
-          Jika Anda tidak menggunakannya, Anda bisa menghapus bagian ini.
-          Namun, impor Skeleton tetap diperlukan jika ada komponen lain (misalnya layout)
-          yang mungkin merender halaman not-found ini dan menggunakan Skeleton.
-      */}
-      {/* <div className="space-y-2 w-full max-w-sm mb-8">
-        <p className="text-sm text-slate-500 dark:text-slate-400">Loading placeholder:</p>
-        <Skeleton className="h-8 w-full bg-slate-300 dark:bg-slate-700" />
-        <Skeleton className="h-8 w-3/4 bg-slate-300 dark:bg-slate-700" />
-      </div> 
+      {/* Jika Anda tidak secara eksplisit menggunakan <Skeleton /> di sini, 
+          error "Skeleton is not defined" tetap bisa muncul jika halaman _not-found 
+          dirender dalam sebuah layout atau komponen wrapper yang menggunakan Skeleton.
+          Impor di atas tetap penting.
       */}
 
       <Link href="/">
