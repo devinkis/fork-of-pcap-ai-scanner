@@ -3,12 +3,18 @@
 
 import type React from "react";
 import { useState, useCallback } from "react";
-import { UploadCloud, FileUp, Loader2, AlertTriangle, CheckCircle } from "lucide-react";
-import { Button } from "@/components/ui/button"; //
-import { Progress } from "@/components/ui/progress"; //
+// --- PERBAIKAN MULAI ---
+import { UploadCloud, FileUp, Loader2, AlertTriangle, CheckCircle, Zap } from "lucide-react"; 
+// --- PERBAIKAN SELESAI ---
+import { Button } from "@/components/ui/button"; 
+import { Progress } from "@/components/ui/progress"; 
 import { useRouter } from "next/navigation";
-import { useDropzone } from 'react-dropzone'; // Tambahkan react-dropzone
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; //
+import { useDropzone } from 'react-dropzone'; 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; 
+// Impor Card, CardContent, dan Badge
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+
 
 export function PcapUploader() {
   const [file, setFile] = useState<File | null>(null);
@@ -41,7 +47,7 @@ export function PcapUploader() {
     onDrop,
     accept: {
         'application/vnd.tcpdump.pcap': ['.pcap', '.pcapng'],
-        'application/octet-stream': ['.pcap', '.pcapng'] // Fallback MIME type
+        'application/octet-stream': ['.pcap', '.pcapng'] 
     },
     multiple: false,
     maxSize: 50 * 1024 * 1024, // 50MB
@@ -64,12 +70,12 @@ export function PcapUploader() {
       formData.append("pcapFile", file);
       console.log(`Uploading file: ${file.name} (${file.size} bytes)`);
 
-      const response = await fetch("/api/upload-pcap", { //
+      const response = await fetch("/api/upload-pcap", { 
         method: "POST",
         body: formData,
       });
 
-      clearInterval(progressInterval); // Hentikan interval progres simulasi
+      clearInterval(progressInterval); 
       const data = await response.json();
 
       if (!response.ok) {
@@ -78,23 +84,31 @@ export function PcapUploader() {
       }
       
       console.log("Upload successful, received data:", data);
-      setUploadProgress(100);
-      setSuccessMessage("Upload successful! Redirecting to analysis...");
 
-      setTimeout(() => {
-        try {
-          console.log(`Navigating to analysis page: /analysis/${data.analysisId}`);
-          router.push(`/analysis/${data.analysisId}`);
-        } catch (navigationError) {
-          console.error("Navigation error:", navigationError);
-          setError("Navigation to analysis page failed. Please check your analyses history.");
-          setUploading(false);
-        }
-      }, 1500); // Delay agar pesan sukses terlihat
+      // --- PERBAIKAN MULAI: Validasi data.analysisId ---
+      if (data && data.analysisId) {
+        setUploadProgress(100);
+        setSuccessMessage("Upload successful! Redirecting to analysis...");
+
+        setTimeout(() => {
+          try {
+            console.log(`Navigating to analysis page: /analysis/${data.analysisId}`);
+            router.push(`/analysis/${data.analysisId}`);
+          } catch (navigationError) {
+            console.error("Navigation error:", navigationError);
+            setError("Navigation to analysis page failed. Please check your analyses history.");
+            setUploading(false); 
+          }
+        }, 1500);
+      } else {
+        console.error("Upload succeeded but analysisId not found in response:", data);
+        throw new Error("Upload succeeded, but could not retrieve analysis ID for redirection.");
+      }
+      // --- PERBAIKAN SELESAI ---
     } catch (uploadError) {
       clearInterval(progressInterval);
       console.error("Error uploading file:", uploadError);
-      setUploadProgress(0);
+      setUploadProgress(0); // Reset progress jika error
       setUploading(false);
       setError(uploadError instanceof Error ? uploadError.message : "Failed to upload PCAP file");
     }
@@ -162,7 +176,9 @@ export function PcapUploader() {
                 </>
               ) : (
                 <>
-                  <Zap className="mr-2 h-4 w-4" />
+                  {/* --- PERBAIKAN MULAI: Menggunakan ikon Zap --- */}
+                  <Zap className="mr-2 h-4 w-4" /> 
+                  {/* --- PERBAIKAN SELESAI --- */}
                   Start AI Analysis
                 </>
               )}
