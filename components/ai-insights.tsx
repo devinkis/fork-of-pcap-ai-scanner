@@ -24,13 +24,11 @@ import {
 import { IOCList } from "@/components/ioc-list";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-// --- IMPOR TOOLTIP ---
+// --- TAMBAHKAN IMPOR TOOLTIP DI SINI ---
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-interface AIInsightsProps {
-  analysisId: string;
-}
-
+// Interface Insight dan AIAnalysis tetap sama seperti versi terakhir.
+// ... (kode interface AIAnalysis dan Insight) ...
 interface Insight {
   id: string;
   title: string;
@@ -45,7 +43,7 @@ interface Insight {
   timeline?: {
     time: string;
     event: string;
-  }[];
+  }[]; 
   mitigationSteps?: string[];
   references?: {
     title: string;
@@ -89,6 +87,7 @@ interface AIAnalysis {
     confidence: number;
   }[];
 }
+
 
 export function AIInsights({ analysisId }: AIInsightsProps) {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
@@ -250,6 +249,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     setSelectedInsight(selectedInsight?.id === insight.id ? null : insight);
   };
 
+  // ... (Kode untuk state loading, error, dan !analysis tetap sama)
   if (loading && analyzing) { 
     return (
       <div className="space-y-6 animate-pulse">
@@ -324,10 +324,13 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
           </div>
       );
   }
-
+  // ----- Tampilan Utama Setelah Data AI Analysis Diterima -----
+  // Baris 340
   return (
-    <TooltipProvider> 
-    <div className="space-y-8">
+    <TooltipProvider> {/* Baris 341 - Sekarang sudah diimpor */}
+      <div className="space-y-8"> {/* Baris 342 */}
+        {/* ... (sisa JSX dari versi terakhir yang sudah diimprove UI-nya) ... */}
+        {/* Card Ringkasan Analisis */}
         <Card className={`${getSeverityBgColor(analysis.threatLevel)} border-2 shadow-xl rounded-xl`}>
             <CardHeader className="pb-4 px-6 pt-5"> 
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
@@ -554,7 +557,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                 )}
             </div>
         </div>
-        </>
+      </>
     </div>
     </TooltipProvider>
   );
