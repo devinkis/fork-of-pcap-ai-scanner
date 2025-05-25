@@ -5,33 +5,32 @@ import {
     Card, CardContent, CardDescription, 
     CardHeader, CardTitle, CardFooter 
 } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; //
-import { Badge } from "@/components/ui/badge"; //
-import { Progress } from "@/components/ui/progress"; //
-import { Button } from "@/components/ui/button"; //
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
 import { 
     Tabs, TabsContent, TabsList, TabsTrigger 
-} from "@/components/ui/tabs"; //
+} from "@/components/ui/tabs";
 import { 
     Accordion, AccordionContent, AccordionItem, AccordionTrigger 
-} from "@/components/ui/accordion"; //
+} from "@/components/ui/accordion";
 import { 
     Loader2, AlertTriangle, Shield, Activity, Network, 
     FileWarning, RefreshCw, Zap, Search, ExternalLink, 
     EyeOff, ListChecks, History, ShieldAlert, Info, Users, 
-    FileText, BarChart3, Route, Lightbulb, ClipboardList 
+    FileText, BarChart3, Route, Lightbulb 
 } from "lucide-react";
-import { IOCList } from "@/components/ioc-list"; //
-import { ScrollArea } from "@/components/ui/scroll-area"; //
-import { Skeleton } from "@/components/ui/skeleton"; //
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"; //
+import { IOCList } from "@/components/ioc-list";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+// --- IMPOR TOOLTIP ---
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface AIInsightsProps {
   analysisId: string;
 }
 
-// Interface Insight dan AIAnalysis tetap sama seperti versi terakhir yang Anda miliki
-// Pastikan field-fieldnya sesuai dengan data yang dikembalikan oleh API /api/analyze-pcap
 interface Insight {
   id: string;
   title: string;
@@ -46,7 +45,7 @@ interface Insight {
   timeline?: {
     time: string;
     event: string;
-  }[]; // Timeline spesifik untuk finding ini
+  }[];
   mitigationSteps?: string[];
   references?: {
     title: string;
@@ -58,7 +57,7 @@ interface AIAnalysis {
   summary: string;
   threatLevel: "low" | "medium" | "high" | "critical";
   findings: Insight[];
-  statistics?: { // Jadikan opsional jika API mungkin tidak selalu mengirimkannya
+  statistics?: { 
     totalPacketsInFile?: number;
     packetsProcessedForStats?: number;
     protocols?: { [key: string]: number; };
@@ -73,7 +72,7 @@ interface AIAnalysis {
     }[];
     anomalyScore?: number;
   };
-  timeline?: { // Timeline global untuk seluruh analisis
+  timeline?: { 
     time: string;
     event: string;
     severity: "info" | "warning" | "error";
@@ -90,7 +89,6 @@ interface AIAnalysis {
     confidence: number;
   }[];
 }
-
 
 export function AIInsights({ analysisId }: AIInsightsProps) {
   const [analysis, setAnalysis] = useState<AIAnalysis | null>(null);
@@ -132,7 +130,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
       }, timePerStep / (totalSteps/100)); 
 
       console.log(`[AI_INSIGHTS_FE] Requesting AI analysis from API for analysisId: ${analysisId}`);
-      const response = await fetch("/api/analyze-pcap", { //
+      const response = await fetch("/api/analyze-pcap", {
         method: "POST",
         headers: { "Content-Type": "application/json", },
         body: JSON.stringify({ analysisId }),
@@ -155,12 +153,11 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
       console.log("[AI_INSIGHTS_FE] AI Analysis data received from API:", data);
 
       if (data.success && data.analysis) {
-        // Normalisasi data untuk memastikan semua field yang diharapkan ada (meskipun kosong)
         const normalizedAnalysis: AIAnalysis = {
             summary: data.analysis.summary || "No summary provided.",
             threatLevel: data.analysis.threatLevel || "low",
             findings: data.analysis.findings || [],
-            statistics: { // Pastikan statistik ada, bahkan jika kosong, untuk mencegah error
+            statistics: { 
                 totalPacketsInFile: data.analysis.statistics?.totalPacketsInFile || 0,
                 packetsProcessedForStats: data.analysis.statistics?.packetsProcessedForStats || data.analysis.statistics?.totalPacketsInFile || 0,
                 protocols: data.analysis.statistics?.protocols || {},
@@ -193,10 +190,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     }
   }, [analysisId]);
 
-  // Helper functions untuk styling (getSeverityColor, getSeverityBgColor, dll.)
-  // tetap sama seperti versi sebelumnya.
-  // ... (Sertakan helper functions Anda di sini)
-  const getSeverityColor = (severity?: string) => { /* ... implementasi dari sebelumnya ... */ 
+  const getSeverityColor = (severity?: string) => { 
     if (!severity) return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
     switch (severity.toLowerCase()) {
       case "low": return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300";
@@ -207,7 +201,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     }
   };
 
-  const getSeverityBgColor = (severity?: string) => { /* ... implementasi dari sebelumnya ... */ 
+  const getSeverityBgColor = (severity?: string) => { 
     if (!severity) return "bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700";
     switch (severity.toLowerCase()) {
         case "low": return "bg-blue-50 border-blue-300 dark:bg-blue-900/40 dark:border-blue-700";
@@ -218,7 +212,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     }
   };
   
-  const getCategoryIcon = (category?: string) => { /* ... implementasi dari sebelumnya ... */ 
+  const getCategoryIcon = (category?: string) => { 
     if(!category) return <Info className="h-5 w-5 text-gray-500" />;
     switch (category.toLowerCase()) {
       case "malware": return <ShieldAlert className="h-5 w-5 text-red-500" />;
@@ -232,7 +226,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     }
   };
 
-  const getTimelineSeverityColor = (severity?: string) => { /* ... implementasi dari sebelumnya ... */ 
+  const getTimelineSeverityColor = (severity?: string) => { 
     if (!severity) return "bg-gray-100 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600";
     switch (severity.toLowerCase()) {
       case "info": return "bg-blue-100 border-blue-300 dark:bg-blue-900/30 dark:border-blue-700";
@@ -242,7 +236,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     }
   };
 
-  const getPriorityColor = (priority?: string) => { /* ... implementasi dari sebelumnya ... */ 
+  const getPriorityColor = (priority?: string) => { 
     if(!priority) return "bg-gray-100 text-gray-800";
     switch (priority.toLowerCase()) {
       case "low": return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300";
@@ -256,8 +250,6 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     setSelectedInsight(selectedInsight?.id === insight.id ? null : insight);
   };
 
-
-  // Tampilan Skeleton saat loading awal
   if (loading && analyzing) { 
     return (
       <div className="space-y-6 animate-pulse">
@@ -289,7 +281,6 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     );
   }
   
-  // Tampilan Error jika fetch gagal
   if (error) { 
     return (
       <Alert variant="destructive" className="shadow-md">
@@ -306,7 +297,6 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     );
   }
 
-  // Tampilan jika tidak ada data analisis (setelah loading selesai dan tidak ada error)
   if (!analysis && !analyzing && !loading) { 
     return (
       <Card className="shadow-lg">
@@ -326,7 +316,6 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
     );
   }
   
-  // Fallback jika analysis masih null (seharusnya tidak tercapai jika logika di atas benar)
   if (!analysis) {
       return (
           <div className="flex justify-center items-center h-80">
@@ -336,11 +325,9 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
       );
   }
 
-  // ----- Tampilan Utama Setelah Data AI Analysis Diterima -----
   return (
-    <TooltipProvider>
-    <div className="space-y-8"> {/* Tambah spasi antar Card utama */}
-        {/* Card Ringkasan Analisis */}
+    <TooltipProvider> 
+    <div className="space-y-8">
         <Card className={`${getSeverityBgColor(analysis.threatLevel)} border-2 shadow-xl rounded-xl`}>
             <CardHeader className="pb-4 px-6 pt-5"> 
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
@@ -361,8 +348,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
             <CardContent className="px-6 pb-6">
               <p className="text-md leading-relaxed text-foreground/90">{analysis.summary}</p>
               
-              {/* Statistik Ringkas dari AI (jika ada) */}
-              {analysis.statistics && (analysis.statistics.anomalyScore !== undefined || (analysis.statistics.topTalkers && analysis.statistics.topTalkers.length > 0)) && (
+              {analysis.statistics && (analysis.statistics.anomalyScore !== undefined || (analysis.statistics.topTalkers && analysis.statistics.topTalkers.length > 0) || (analysis.findings && analysis.findings.length > 0) ) && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-6 pt-4 border-t dark:border-slate-700">
                     {analysis.findings?.length > 0 && (
                         <div className="bg-background/60 dark:bg-slate-800/50 p-4 rounded-lg shadow">
@@ -404,9 +390,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
             </CardContent>
         </Card>
 
-        {/* Layout Dua Kolom untuk Detail */}
         <div className="grid grid-cols-1 lg:grid-cols-7 gap-x-8 gap-y-6">
-            {/* Kolom Kiri: Findings & Recommendations */}
             <div className="lg:col-span-4 space-y-6">
                 {analysis.findings && analysis.findings.length > 0 && (
                     <Card className="shadow-lg">
@@ -419,22 +403,22 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                         <CardContent>
                         <Accordion type="multiple" className="w-full">
                             {analysis.findings.map((finding) => (
-                            <AccordionItem value={finding.id} key={finding.id} className="border-b dark:border-slate-700">
-                                <AccordionTrigger className={`py-4 px-2 text-left hover:no-underline ${selectedInsight?.id === finding.id ? 'bg-muted dark:bg-slate-800' : ''}`}>
+                            <AccordionItem value={finding.id} key={finding.id} className="border-b dark:border-slate-700 last:border-b-0">
+                                <AccordionTrigger className={`py-4 px-2 text-left hover:no-underline rounded-md hover:bg-muted/50 dark:hover:bg-slate-800/70 ${selectedInsight?.id === finding.id ? 'bg-muted dark:bg-slate-800' : ''}`}>
                                     <div className="flex items-center gap-3 w-full">
-                                        <span className={`p-2 rounded-full ${getSeverityBgColor(finding.severity)}`}>
+                                        <span className={`p-1.5 rounded-full ${getSeverityBgColor(finding.severity)} border dark:border-slate-700`}>
                                             {getCategoryIcon(finding.category)}
                                         </span>
                                         <div className="flex-1 min-w-0">
                                             <h4 className="font-semibold text-md truncate" title={finding.title}>{finding.title}</h4>
                                             <p className="text-xs text-muted-foreground line-clamp-1">{finding.description}</p>
                                         </div>
-                                        <Badge className={`${getSeverityColor(finding.severity)} text-xs self-start mt-1`}>
+                                        <Badge className={`${getSeverityColor(finding.severity)} text-xs self-start mt-1 px-2.5 py-0.5`}>
                                             {finding.severity?.charAt(0).toUpperCase() + (finding.severity?.slice(1) || '')}
                                         </Badge>
                                     </div>
                                 </AccordionTrigger>
-                                <AccordionContent className="pt-2 pb-4 px-2 space-y-3 text-sm leading-relaxed bg-slate-50 dark:bg-slate-800/50 rounded-b-md">
+                                <AccordionContent className="pt-2 pb-4 px-3 space-y-3 text-sm leading-relaxed bg-slate-50 dark:bg-slate-800/50 rounded-b-md">
                                     <p><strong className="font-medium text-foreground/80">Description:</strong> {finding.description}</p>
                                     {finding.detailedAnalysis && (
                                         <p><strong className="font-medium text-foreground/80">Detailed Analysis:</strong> {finding.detailedAnalysis}</p>
@@ -460,10 +444,10 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                                         </div>
                                     )}
                                     {finding.recommendation && (
-                                        <p className="pt-2 border-t dark:border-slate-700"><strong className="font-medium text-foreground/80">Recommendation:</strong> {finding.recommendation}</p>
+                                        <p className="pt-3 mt-3 border-t dark:border-slate-700"><strong className="font-medium text-foreground/80">Recommendation:</strong> {finding.recommendation}</p>
                                     )}
                                     {finding.mitigationSteps && finding.mitigationSteps.length > 0 && (
-                                        <div className="pt-2 border-t dark:border-slate-700">
+                                        <div className="pt-3 mt-3 border-t dark:border-slate-700">
                                             <strong className="font-medium text-foreground/80 mb-1 block">Mitigation Steps:</strong>
                                             <ul className="list-disc pl-5 space-y-1 text-xs">
                                                 {finding.mitigationSteps.map((step, idx) => <li key={idx}>{step}</li>)}
@@ -471,7 +455,7 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                                         </div>
                                     )}
                                     {finding.references && finding.references.length > 0 && (
-                                        <div className="pt-2 border-t dark:border-slate-700">
+                                        <div className="pt-3 mt-3 border-t dark:border-slate-700">
                                             <strong className="font-medium text-foreground/80 mb-1 block">References:</strong>
                                             <ul className="space-y-1">
                                             {finding.references.map((ref, index) => (
@@ -503,16 +487,16 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                         <CardContent>
                         <div className="space-y-4">
                             {analysis.recommendations.map((rec, index) => (
-                            <div key={index} className="p-4 border dark:border-slate-700 rounded-lg bg-background/70 dark:bg-slate-800/50 flex items-start shadow-sm hover:shadow-md transition-shadow">
+                            <div key={index} className="p-4 border dark:border-slate-700 rounded-lg bg-card flex items-start shadow-sm hover:shadow-md transition-shadow">
                                 <div className={`flex-shrink-0 p-2.5 rounded-full ${getPriorityColor(rec.priority).replace('text-', 'bg-').replace('800', '100 dark:bg-opacity-30')} mr-4`}>
                                 {rec.priority === "high" ? <Zap className={`h-5 w-5 ${getPriorityColor(rec.priority).split(' ')[1]}`} />
                                 : rec.priority === "medium" ? <AlertTriangle className={`h-5 w-5 ${getPriorityColor(rec.priority).split(' ')[1]}`} />
                                 : <Shield className={`h-5 w-5 ${getPriorityColor(rec.priority).split(' ')[1]}`} />}
                                 </div>
                                 <div className="flex-1">
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-baseline justify-between">
                                     <h4 className="font-semibold text-md">{rec.title}</h4>
-                                    <Badge className={`${getPriorityColor(rec.priority)} text-xs`}>
+                                    <Badge className={`${getPriorityColor(rec.priority)} text-xs px-2.5 py-0.5`}>
                                     {rec.priority?.charAt(0).toUpperCase() + (rec.priority?.slice(1) || '')}
                                     </Badge>
                                 </div>
@@ -526,7 +510,6 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                 )}
             </div>
 
-            {/* Kolom Kanan: IOCs & Timeline */}
             <div className="lg:col-span-3 space-y-6">
                 {analysis.iocs && analysis.iocs.length > 0 && (
                     <Card className="shadow-lg">
@@ -551,10 +534,10 @@ export function AIInsights({ analysisId }: AIInsightsProps) {
                         <CardDescription>Chronological view of significant detected events.</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <ScrollArea className="max-h-[400px] pr-3"> {/* Scroll jika timeline panjang */}
+                        <ScrollArea className="max-h-[400px] pr-3">
                             <div className="relative pl-3 border-l-2 border-muted dark:border-slate-700 space-y-5">
                                 {analysis.timeline.map((event, index) => ( 
-                                    <div key={index} className="relative pl-5"> {/* Tambah padding kiri untuk item */}
+                                    <div key={index} className="relative pl-5">
                                         <div className={`absolute left-[-7px] top-1.5 w-3 h-3 rounded-full border-2 border-background dark:border-slate-900 ${getTimelineSeverityColor(event.severity).split(' ')[0].replace('bg-', 'border-')}`}></div>
                                         <div className={`absolute left-[-6px] top-[7px] w-2.5 h-2.5 rounded-full ${getTimelineSeverityColor(event.severity).split(' ')[0]}`}></div>
                                         

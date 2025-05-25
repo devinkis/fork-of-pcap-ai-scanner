@@ -1,128 +1,175 @@
-"use client"
+// components/pcap-uploader.tsx
+"use client";
 
-import type React from "react"
-
-import { useState } from "react"
-import { Upload, FileUp, Loader2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
-import { useRouter } from "next/navigation"
+import type React from "react";
+import { useState, useCallback } from "react";
+import { UploadCloud, FileUp, Loader2, AlertTriangle, CheckCircle } from "lucide-react";
+import { Button } from "@/components/ui/button"; //
+import { Progress } from "@/components/ui/progress"; //
+import { useRouter } from "next/navigation";
+import { useDropzone } from 'react-dropzone'; // Tambahkan react-dropzone
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; //
 
 export function PcapUploader() {
-  const [file, setFile] = useState<File | null>(null)
-  const [uploading, setUploading] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const router = useRouter()
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const router = useRouter();
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0])
-      setError(null)
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles && acceptedFiles[0]) {
+      const currentFile = acceptedFiles[0];
+      if (currentFile.name.endsWith(".pcap") || currentFile.name.endsWith(".pcapng")) {
+        if (currentFile.size <= 50 * 1024 * 1024) { // Batas 50MB
+            setFile(currentFile);
+            setError(null);
+            setSuccessMessage(null);
+        } else {
+            setError("File size exceeds 50MB limit.");
+            setFile(null);
+        }
+      } else {
+        setError("Invalid file type. Only .pcap and .pcapng are supported.");
+        setFile(null);
+      }
     }
-  }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
+    onDrop,
+    accept: {
+        'application/vnd.tcpdump.pcap': ['.pcap', '.pcapng'],
+        'application/octet-stream': ['.pcap', '.pcapng'] // Fallback MIME type
+    },
+    multiple: false,
+    maxSize: 50 * 1024 * 1024, // 50MB
+  });
 
   const handleUpload = async () => {
-    if (!file) return
+    if (!file) return;
 
-    setUploading(true)
-    setUploadProgress(0)
-    setError(null)
+    setUploading(true);
+    setUploadProgress(0);
+    setError(null);
+    setSuccessMessage(null);
 
-    // Simulate upload progress
     const progressInterval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 95) {
-          clearInterval(progressInterval)
-          return prev
-        }
-        return prev + 5
-      })
-    }, 200)
+      setUploadProgress((prev) => (prev >= 95 ? prev : prev + 5));
+    }, 200);
 
     try {
-      // Create FormData
-      const formData = new FormData()
-      formData.append("pcapFile", file)
+      const formData = new FormData();
+      formData.append("pcapFile", file);
+      console.log(`Uploading file: ${file.name} (${file.size} bytes)`);
 
-      console.log(`Uploading file: ${file.name} (${file.size} bytes)`)
-
-      // Send to API route
-      const response = await fetch("/api/upload-pcap", {
+      const response = await fetch("/api/upload-pcap", { //
         method: "POST",
         body: formData,
-      })
+      });
+
+      clearInterval(progressInterval); // Hentikan interval progres simulasi
+      const data = await response.json();
 
       if (!response.ok) {
-        const errorData = await response.json()
-        console.error("Upload failed with status:", response.status, errorData)
-        throw new Error(errorData.error || `Upload failed with status: ${response.status}`)
+        console.error("Upload failed with status:", response.status, data);
+        throw new Error(data.error || `Upload failed with status: ${response.status}`);
       }
+      
+      console.log("Upload successful, received data:", data);
+      setUploadProgress(100);
+      setSuccessMessage("Upload successful! Redirecting to analysis...");
 
-      const data = await response.json()
-      console.log("Upload successful, received data:", data)
-
-      // Complete progress bar
-      clearInterval(progressInterval)
-      setUploadProgress(100)
-
-      // Navigate to analysis page with a slight delay to ensure UI updates
       setTimeout(() => {
         try {
-          console.log(`Navigating to analysis page: /analysis/${data.analysisId}`)
-          router.push(`/analysis/${data.analysisId}`)
-        } catch (error) {
-          console.error("Navigation error:", error)
-          setError("There was an error navigating to the analysis page. Please try again.")
+          console.log(`Navigating to analysis page: /analysis/${data.analysisId}`);
+          router.push(`/analysis/${data.analysisId}`);
+        } catch (navigationError) {
+          console.error("Navigation error:", navigationError);
+          setError("Navigation to analysis page failed. Please check your analyses history.");
+          setUploading(false);
         }
-      }, 1000)
-    } catch (error) {
-      clearInterval(progressInterval)
-      console.error("Error uploading file:", error)
-      setUploadProgress(0)
-      setUploading(false)
-      setError(error instanceof Error ? error.message : "Failed to upload PCAP file")
+      }, 1500); // Delay agar pesan sukses terlihat
+    } catch (uploadError) {
+      clearInterval(progressInterval);
+      console.error("Error uploading file:", uploadError);
+      setUploadProgress(0);
+      setUploading(false);
+      setError(uploadError instanceof Error ? uploadError.message : "Failed to upload PCAP file");
     }
-  }
+  };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div
-        className="border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center cursor-pointer hover:bg-muted/50 transition-colors"
-        onClick={() => document.getElementById("pcap-file")?.click()}
+        {...getRootProps()}
+        className={`border-2 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-colors duration-200 ease-in-out
+                    ${isDragActive ? 'border-primary bg-primary/10' : 'border-gray-300 dark:border-gray-700 hover:border-primary/70'}
+                    ${isDragReject ? 'border-red-500 bg-red-500/10' : ''}`}
       >
-        <input type="file" id="pcap-file" accept=".pcap,.pcapng" className="hidden" onChange={handleFileChange} />
-        <Upload className="h-10 w-10 text-muted-foreground mb-2" />
-        <p className="text-sm text-muted-foreground mb-1">{file ? file.name : "Click to upload or drag and drop"}</p>
-        <p className="text-xs text-muted-foreground">Supports .pcap and .pcapng files</p>
+        <input {...getInputProps()} id="pcap-file-dropzone" />
+        <UploadCloud className={`h-12 w-12 mb-4 ${isDragActive ? 'text-primary' : 'text-muted-foreground'}`} />
+        {isDragActive ? (
+          <p className="text-lg font-semibold text-primary">Drop the file here ...</p>
+        ) : (
+          <>
+            <p className="text-lg font-semibold">Drag & drop or click to upload</p>
+            <p className="text-sm text-muted-foreground mt-1">Supports .pcap and .pcapng files (Max 50MB)</p>
+          </>
+        )}
       </div>
 
-      {file && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <FileUp className="h-4 w-4 mr-2 text-muted-foreground" />
-              <span className="text-sm font-medium truncate max-w-[200px]">{file.name}</span>
+      {error && (
+        <Alert variant="destructive" className="mt-4">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Upload Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      
+      {successMessage && !error && (
+        <Alert variant="default" className="mt-4 bg-green-50 border-green-200 dark:bg-green-900/30 dark:border-green-700">
+          <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+          <AlertTitle className="text-green-700 dark:text-green-300">Success</AlertTitle>
+          <AlertDescription className="text-green-600 dark:text-green-400">{successMessage}</AlertDescription>
+        </Alert>
+      )}
+
+      {file && !successMessage && (
+        <Card className="mt-6 shadow-md border dark:border-slate-700">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileUp className="h-5 w-5 text-primary flex-shrink-0" />
+                <span className="font-medium truncate" title={file.name}>{file.name}</span>
+              </div>
+              <Badge variant="outline" className="text-xs">{(file.size / (1024 * 1024)).toFixed(2)} MB</Badge>
             </div>
-            <span className="text-xs text-muted-foreground">{(file.size / (1024 * 1024)).toFixed(2)} MB</span>
-          </div>
 
-          {uploading && <Progress value={uploadProgress} className="h-2" />}
-
-          {error && <p className="text-sm text-red-500">{error}</p>}
-
-          <Button onClick={handleUpload} disabled={uploading} className="w-full">
-            {uploading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Uploading...
-              </>
-            ) : (
-              "Analyze with AI"
+            {uploading && (
+              <div className="space-y-1">
+                <Progress value={uploadProgress} className="h-2 [&>div]:bg-primary" />
+                <p className="text-xs text-muted-foreground text-right">{uploadProgress}%</p>
+              </div>
             )}
-          </Button>
-        </div>
+
+            <Button onClick={handleUpload} disabled={uploading || !!successMessage} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
+              {uploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Zap className="mr-2 h-4 w-4" />
+                  Start AI Analysis
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
       )}
     </div>
-  )
+  );
 }
