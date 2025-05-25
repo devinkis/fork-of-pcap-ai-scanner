@@ -1,37 +1,22 @@
 // components/ioc-validator.tsx
 "use client";
 
-import React, { useState } from "react"; // Import React
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import React, { useState } from "react";
+// ... (impor Button, Input, Label, Card, dll. tetap sama) ...
 import { Badge } from "@/components/ui/badge";
 import { Loader2, AlertTriangle, Shield, CheckCircle, XCircle, Clock, ExternalLink, Info, ListChecks, Users, BarChart3 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"; // Impor ScrollBar juga
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 
-// Impor interface dari berkas lib jika sudah dibuat
-// (Anda mungkin perlu membuat berkas ini atau mendefinisikannya secara lokal jika belum)
-// Untuk sekarang, kita akan definisikan secara lokal agar mandiri
-interface OTXIndicatorDetails {
-  indicator: string; type: string; description?: string; title?: string;
-  references?: string[]; malware_families?: string[]; tags?: string[];
-  pulse_info?: { count: number; pulses: Array<{ id: string; name: string; tags: string[]; created: string; adversary?: string; }>; };
-}
-interface AbuseIPDBReport {
-  ipAddress: string; isPublic: boolean; ipVersion: number; isWhitelisted: boolean | null;
-  abuseConfidenceScore: number; countryCode: string | null; countryName: string | null;
-  usageType: string | null; isp: string; domain: string | null; hostnames: string[];
-  totalReports: number; numDistinctUsers: number; lastReportedAt: string | null;
-}
-interface TalosReputation { ip: string; verdict: string | null; errorMessage?: string; }
+// --- PERBAIKAN MULAI: Impor modul VirusTotal sebagai namespace ---
+import * as VirusTotal from "@/lib/virustotal";
+// --- SELESAI PERBAIKAN ---
 
-// Impor tipe respons VirusTotal dan MalwareBazaar (jika sudah didefinisikan di lib)
-// Jika tidak, Anda bisa menggunakan 'any' atau mendefinisikan struktur dasar di sini
-import type { VirusTotalResponse as VTResponseType } from "@/lib/virustotal";
+// Impor interface lain yang sudah ada atau akan dibuat
+import type { OTXIndicatorDetails } from "@/lib/otx";
+import type { AbuseIPDBReport } from "@/lib/abuseipdb";
+import type { TalosReputation } from "@/lib/talosintelligence";
+// import type { VirusTotalResponse as VTResponseType } from "@/lib/virustotal"; // Ini sudah di-cover oleh import * as VirusTotal
 import type { MalwareBazaarResponse as MBResponseType } from "@/lib/malwarebazaar";
 
 
@@ -43,7 +28,8 @@ interface IOCValidatorProps {
 interface ValidationResult {
   ioc: { type: string; value: string; };
   results: {
-    virusTotal?: VTResponseType["data"]["attributes"];
+    // Menggunakan tipe atribut langsung dari respons VirusTotal yang diimpor
+    virusTotal?: VirusTotal.VirusTotalResponse["data"]["attributes"]; 
     malwareBazaar?: { detected: boolean; details: MBResponseType["data"][0] | null; };
     otxAlienvault?: OTXIndicatorDetails | { message: string };
     abuseIPDB?: AbuseIPDBReport | { message: string };
@@ -62,7 +48,7 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<ValidationResult | null>(null);
 
-  const validateIOC = async () => { /* ... sama seperti sebelumnya ... */
+  const validateIOC = async () => {
     if (!iocValue.trim()) {
       setError("Please enter a value to validate");
       return;
@@ -108,7 +94,7 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
     }
   };
   
-  const getPlaceholder = (type: string) => { /* ... sama ... */ 
+  const getPlaceholder = (type: string) => { 
     switch (type) {
       case "ip": return "e.g., 8.8.8.8";
       case "domain": return "e.g., example.com";
@@ -118,7 +104,7 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
     }
   };
 
-  const getExternalLink = (service: "virustotal" | "otx" | "abuseipdb" | "talos", type: string, value: string) => { /* ... sama seperti sebelumnya ... */
+  const getExternalLink = (service: "virustotal" | "otx" | "abuseipdb" | "talos", type: string, value: string) => {
     const encodedValue = encodeURIComponent(value);
     switch (service) {
       case "virustotal":
@@ -146,7 +132,7 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
     return "#";
   };
 
-  const formatFileSize = (bytes?: number): string => { /* ... sama, tambahkan pengecekan undefined ... */ 
+  const formatFileSize = (bytes?: number): string => { 
     if (bytes === undefined || bytes === null) return "N/A";
     if (bytes === 0) return "0 Bytes";
     const k = 1024;
@@ -155,17 +141,17 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
     return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
-  const formatDate = (dateInput?: string | number): string => { /* ... sama seperti sebelumnya ... */ 
+  const formatDate = (dateInput?: string | number): string => { 
     if (!dateInput) return "N/A";
     try {
-      const date = typeof dateInput === 'string' && !isNaN(Number(dateInput)) && dateInput.length === 10 ? new Date(Number(dateInput) * 1000) : new Date(dateInput);
+      // OTX dan VirusTotal menggunakan Unix timestamp (detik), AbuseIPDB ISO string
+      const date = typeof dateInput === 'number' ? new Date(dateInput * 1000) : new Date(dateInput);
       if (isNaN(date.getTime())) return String(dateInput); 
       return date.toLocaleString();
     } catch {
       return String(dateInput); 
     }
   };
-
 
   return (
     <Card>
@@ -226,12 +212,13 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
                 <TabsContent value="virustotal" className="pt-4">
                   {results.results.virusTotal ? (
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
                             <div>
                                 <div className="font-medium">VirusTotal Assessment</div>
                                 {results.results.virusTotal.last_analysis_stats &&
                                     <div className="text-sm text-muted-foreground">
-                                    Detection Ratio: {VirusTotal.getDetectionRatio(results.results.virusTotal.last_analysis_stats)}
+                                      {/* --- PERBAIKAN: Panggil fungsi dari namespace VirusTotal --- */}
+                                      Detection Ratio: {VirusTotal.getDetectionRatio(results.results.virusTotal.last_analysis_stats)}
                                     </div>
                                 }
                                 {results.results.virusTotal.last_analysis_date && (
@@ -240,6 +227,7 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
                                 </div>
                                 )}
                             </div>
+                            {/* --- PERBAIKAN: Panggil fungsi dari namespace VirusTotal --- */}
                             {results.results.virusTotal.last_analysis_stats && getThreatLevelBadge(VirusTotal.getThreatLevel(results.results.virusTotal.last_analysis_stats))}
                         </div>
                         <Button variant="outline" size="sm" asChild className="mt-2">
@@ -260,6 +248,7 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
                                 <Table className="text-xs">
                                     <TableHeader><TableRow><TableHead>Engine</TableHead><TableHead>Category</TableHead><TableHead>Result</TableHead></TableRow></TableHeader>
                                     <TableBody>
+                                    {/* --- PERBAIKAN: Panggil fungsi dari namespace VirusTotal --- */}
                                     {VirusTotal.getTopDetections(results.results.virusTotal.last_analysis_results).map((engine, index) => (
                                         <TableRow key={index}>
                                         <TableCell>{engine.engine}</TableCell>
@@ -329,35 +318,21 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
                           <>
                             {(results.results.otxAlienvault as OTXIndicatorDetails).title && <p><strong>Title:</strong> {(results.results.otxAlienvault as OTXIndicatorDetails).title}</p>}
                             {(results.results.otxAlienvault as OTXIndicatorDetails).description && <p><strong>Description:</strong> {(results.results.otxAlienvault as OTXIndicatorDetails).description}</p>}
-                            
                             {(results.results.otxAlienvault as OTXIndicatorDetails).tags && (results.results.otxAlienvault as OTXIndicatorDetails).tags!.length > 0 && (
-                              <div>
-                                <strong>Tags:</strong>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {(results.results.otxAlienvault as OTXIndicatorDetails).tags!.map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}
-                                </div>
-                              </div>
+                              <div><strong>Tags:</strong> <div className="flex flex-wrap gap-1 mt-1">{(results.results.otxAlienvault as OTXIndicatorDetails).tags!.map(tag => <Badge key={tag} variant="secondary">{tag}</Badge>)}</div></div>
                             )}
-
                             {(results.results.otxAlienvault as OTXIndicatorDetails).pulse_info && (results.results.otxAlienvault as OTXIndicatorDetails).pulse_info!.count > 0 ? (
                               <div>
                                 <p><strong>Related Pulses:</strong> {(results.results.otxAlienvault as OTXIndicatorDetails).pulse_info!.count}</p>
                                 <ScrollArea className="h-40 border rounded-md mt-1 p-2">
                                   <ul className="list-disc pl-5 space-y-1 text-xs">
                                     {(results.results.otxAlienvault as OTXIndicatorDetails).pulse_info!.pulses.slice(0, 10).map(pulse => (
-                                      <li key={pulse.id}>
-                                        <a href={`https://otx.alienvault.com/pulse/${pulse.id}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">
-                                          {pulse.name}
-                                        </a> 
-                                        (Tags: {pulse.tags.join(', ') || 'N/A'})
-                                      </li>
+                                      <li key={pulse.id}><a href={`https://otx.alienvault.com/pulse/${pulse.id}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400">{pulse.name}</a> (Tags: {pulse.tags.join(', ') || 'N/A'})</li>
                                     ))}
                                   </ul>
                                 </ScrollArea>
                               </div>
-                            ) : (
-                              <p className="text-muted-foreground">No related OTX pulses found.</p>
-                            )}
+                            ) : (<p className="text-muted-foreground">No related OTX pulses found.</p>)}
                           </>
                         )}
                         {results.errors?.otxAlienvault && <p className="text-xs text-destructive mt-1">Error: {results.errors.otxAlienvault}</p>}
@@ -370,13 +345,9 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
                   <TabsContent value="abuseipdb" className="pt-4">
                     <Card>
                       <CardHeader>
-                        <CardTitle className="flex items-center">
-                          <Users className="h-5 w-5 mr-2 text-red-500" /> AbuseIPDB Results
-                        </CardTitle>
+                        <CardTitle className="flex items-center"><Users className="h-5 w-5 mr-2 text-red-500" /> AbuseIPDB Results</CardTitle>
                         <Button variant="outline" size="sm" asChild className="mt-2 w-fit">
-                          <a href={getExternalLink("abuseipdb", results.ioc.type, results.ioc.value)} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-4 w-4 mr-1" /> View on AbuseIPDB
-                          </a>
+                          <a href={getExternalLink("abuseipdb", results.ioc.type, results.ioc.value)} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4 mr-1" /> View on AbuseIPDB</a>
                         </Button>
                       </CardHeader>
                       <CardContent className="space-y-2 text-sm">
@@ -404,13 +375,9 @@ export function IOCValidator({ defaultIoc, onValidationComplete }: IOCValidatorP
                   <TabsContent value="talos" className="pt-4">
                     <Card>
                       <CardHeader>
-                        <CardTitle className="flex items-center">
-                          <BarChart3 className="h-5 w-5 mr-2 text-teal-500" /> Talos Intelligence Reputation
-                        </CardTitle>
+                        <CardTitle className="flex items-center"><BarChart3 className="h-5 w-5 mr-2 text-teal-500" /> Talos Intelligence Reputation</CardTitle>
                         <Button variant="outline" size="sm" asChild className="mt-2 w-fit">
-                           <a href={getExternalLink("talos", results.ioc.type, results.ioc.value)} target="_blank" rel="noopener noreferrer">
-                             <ExternalLink className="h-4 w-4 mr-1" /> View on Talos
-                           </a>
+                           <a href={getExternalLink("talos", results.ioc.type, results.ioc.value)} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4 mr-1" /> View on Talos</a>
                         </Button>
                       </CardHeader>
                       <CardContent className="space-y-2 text-sm">
