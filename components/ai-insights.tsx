@@ -99,27 +99,26 @@ interface AiInsightsData {
     description: string;
     involvedIps: string[];
   }[];
-  // Tambahkan field baru di sini
   fileName?: string;
-  fileSize?: string; // dalam format yang mudah dibaca, e.g., "1.2 MB"
-  uploadDate?: string; // ISO string or formatted date
-  captureStartTime?: string; // ISO string or formatted date
-  captureEndTime?: string; // ISO string or formatted date
-  analysisDuration?: string; // e.g., "35 seconds"
-  analystNotes?: string; // for user to add notes
+  fileSize?: string; 
+  uploadDate?: string; 
+  captureStartTime?: string; 
+  captureEndTime?: string; 
+  analysisDuration?: string; 
+  analystNotes?: string; 
   dnsQueries?: { query: string, type: string, response?: string, server: string }[];
   httpRequests?: { host: string, path: string, method: string, userAgent?: string, statusCode?: number }[];
   tlsHandshakes?: { clientHello: string, serverHello: string, cipherSuite?: string, version?: string }[];
   flowData?: { flowId: string, srcIp: string, dstIp: string, srcPort: number, dstPort: number, protocol: string, packets: number, bytes: number, duration: number }[];
   fileExtracts?: { fileName: string, fileType: string, size: number, sourceIp: string, destinationIp: string, md5sum?: string, sha1sum?: string }[];
   version?: string;
-  status?: 'Pending' | 'Processing' | 'Completed' | 'Error'; // Status analisis
+  status?: 'Pending' | 'Processing' | 'Completed' | 'Error'; 
 }
 
 interface AiInsightsProps {
   analysisId: string;
-  initialData?: AiInsightsData | null; // Data awal bisa null jika fetch pertama gagal atau belum ada
-  error?: string | null; // Pesan error jika ada
+  initialData?: AiInsightsData | null; 
+  error?: string | null; 
 }
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82Ca9D', '#FF7F50', '#DC143C'];
@@ -170,8 +169,10 @@ const renderActiveShape = (props: any) => {
   );
 };
 
-// Diubah: nama fungsi menjadi AIInsights (I kapital)
+// --- PERUBAHAN DI SINI ---
+// Nama fungsi diubah dari AiInsights menjadi AIInsights (I kapital)
 export default function AIInsights({ analysisId, initialData: initialServerData, error: initialError }: AiInsightsProps) {
+// --- AKHIR PERUBAHAN ---
   const [data, setData] = useState<AiInsightsData | null>(initialServerData || null);
   const [isLoading, setIsLoading] = useState<boolean>(!initialServerData && !initialError);
   const [error, setError] = useState<string | null>(initialError || null);
@@ -180,13 +181,13 @@ export default function AIInsights({ analysisId, initialData: initialServerData,
   const [isSavingNotes, setIsSavingNotes] = useState<boolean>(false);
   const [showRawPayloadModal, setShowRawPayloadModal] = useState<boolean>(false);
   const [selectedPayload, setSelectedPayload] = useState<string | undefined>(undefined);
-  const [currentTab, setCurrentTab] = useState<string>("summary"); // State untuk tab aktif
+  const [currentTab, setCurrentTab] = useState<string>("summary"); 
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    console.log(`Fetching data for analysis ID: ${analysisId} at ${new Date().toLocaleTimeString()}`);
     try {
-      console.log(`Fetching data for analysis ID: ${analysisId}`);
       const response = await fetch(`/api/analysis/${analysisId}`);
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: "Failed to fetch analysis data" }));
@@ -199,9 +200,7 @@ export default function AIInsights({ analysisId, initialData: initialServerData,
       if (result && result.data && typeof result.data !== 'string') {
         setData(result.data);
         setAnalystNotes(result.data.analystNotes || "");
-        if (result.data.status === 'Processing' || result.data.status === 'Pending') {
-          setTimeout(fetchData, 15000); 
-        }
+        // Polling logic will be handled by useEffect
       } else if (result && result.data && typeof result.data === 'string') {
         setError(`Analysis status or error: ${result.data}`);
         setData(null); 
@@ -220,25 +219,46 @@ export default function AIInsights({ analysisId, initialData: initialServerData,
     } finally {
       setIsLoading(false);
     }
-  }, [analysisId]); // Removed fetchData from dependencies as it causes infinite loop with setTimeout
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysisId]); 
 
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    const performFetch = () => {
-      if (!initialServerData && !initialError) {
-        fetchData();
-      } else if (initialServerData?.status === 'Processing' || initialServerData?.status === 'Pending') {
-        timeoutId = setTimeout(fetchData, 15000);
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    const performFetchAndPoll = async () => {
+      if (!isLoading) { // Hanya fetch jika tidak sedang loading
+        await fetchData(); // Tunggu fetch awal selesai
       }
     };
 
-    performFetch();
+    if (!initialServerData && !initialError) { // Fetch jika tidak ada data server awal
+        performFetchAndPoll();
+    }
+    
+    // Set up polling if the current data (either initial or fetched) is in processing state
+    // This effect will re-run if 'data' state changes.
+    if (data?.status === 'Processing' || data?.status === 'Pending') {
+        console.log(`Polling: Data status is ${data.status}. Will refresh in 15s.`);
+        timeoutId = setTimeout(() => {
+            fetchData();
+        }, 15000);
+    } else if (initialServerData?.status === 'Processing' || initialServerData?.status === 'Pending' && !data) {
+        // Case where initial data was processing, but first fetch hasn't populated 'data' yet or failed
+        console.log(`Polling: Initial server data status is ${initialServerData.status}. Will refresh in 15s.`);
+        timeoutId = setTimeout(() => {
+            fetchData();
+        }, 15000);
+    }
+
 
     return () => {
-      if (timeoutId) clearTimeout(timeoutId); // Cleanup timeout on component unmount
+      if (timeoutId) {
+        console.log("Cleaning up timeout for polling.");
+        clearTimeout(timeoutId);
+      }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchData is memoized and stable, initialServerData and initialError are props
-  }, [initialServerData, initialError, analysisId]); // Added analysisId as fetchData depends on it, and fetchData itself to re-run if it changes (though it shouldn't if memoized correctly)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchData, initialServerData, initialError, data?.status]); // data.status ditambahkan agar polling dievaluasi ulang saat status berubah
 
 
   const onPieEnter = useCallback((_: any, index: number) => {
@@ -267,7 +287,10 @@ export default function AIInsights({ analysisId, initialData: initialServerData,
   };
 
   const handleExport = (format: 'json' | 'txt' | 'csv_alerts' | 'csv_conversations') => {
-    if (!data) return;
+    if (!data) {
+        console.warn("No data to export."); // Ganti alert dengan console.warn atau toast
+        return;
+    }
     let content = "";
     let fileName = `analysis_${analysisId}_${data.fileName || 'export'}`;
     let contentType = "text/plain";
@@ -293,26 +316,25 @@ export default function AIInsights({ analysisId, initialData: initialServerData,
           break;
         case 'csv_alerts':
           if (data.alerts && data.alerts.length > 0) {
-            const header = Object.keys(data.alerts[0]).join(',');
-            const rows = data.alerts.map(alert => Object.values(alert).map(val => `"${String(val).replace(/"/g, '""')}"`).join(','));
+            const header = Object.keys(data.alerts[0]).map(key => `"${key.replace(/"/g, '""')}"`).join(',');
+            const rows = data.alerts.map(alert => Object.values(alert).map(val => `"${String(val ?? "").replace(/"/g, '""')}"`).join(','));
             content = `${header}\n${rows.join('\n')}`;
             fileName += "_alerts.csv";
             contentType = "text/csv";
           } else {
-            // Use a more user-friendly way to show this message, e.g., a toast notification
-            console.warn("No alert data to export."); 
+            console.warn("No alert data to export."); // Ganti alert dengan console.warn atau toast
             return;
           }
           break;
         case 'csv_conversations':
           if (data.topConversations && data.topConversations.length > 0) {
-            const header = Object.keys(data.topConversations[0]).join(',');
-            const rows = data.topConversations.map(conv => Object.values(conv).map(val => `"${String(val).replace(/"/g, '""')}"`).join(','));
+            const header = Object.keys(data.topConversations[0]).map(key => `"${key.replace(/"/g, '""')}"`).join(',');
+            const rows = data.topConversations.map(conv => Object.values(conv).map(val => `"${String(val ?? "").replace(/"/g, '""')}"`).join(','));
             content = `${header}\n${rows.join('\n')}`;
             fileName += "_conversations.csv";
             contentType = "text/csv";
           } else {
-            console.warn("No conversation data to export.");
+            console.warn("No conversation data to export."); // Ganti alert dengan console.warn atau toast
             return;
           }
           break;
@@ -329,7 +351,7 @@ export default function AIInsights({ analysisId, initialData: initialServerData,
 
     } catch (exportError: any) {
       console.error("Export error:", exportError);
-      // Use a more user-friendly way to show this message
+      // Ganti alert dengan console.error atau toast
       console.error(`Failed to export data: ${exportError.message}`);
     }
   };
@@ -346,8 +368,8 @@ export default function AIInsights({ analysisId, initialData: initialServerData,
       .catch((error) => console.log('Error sharing', error));
     } else {
       navigator.clipboard.writeText(window.location.href)
-        .then(() => console.log("Link copied to clipboard!")) // Replace alert with console or toast
-        .catch(() => console.error("Could not copy link.")); // Replace alert with console or toast
+        .then(() => console.log("Link copied to clipboard!")) // Ganti alert dengan console atau toast
+        .catch(() => console.error("Could not copy link.")); // Ganti alert dengan console atau toast
     }
   };
 
@@ -355,17 +377,17 @@ export default function AIInsights({ analysisId, initialData: initialServerData,
     window.print();
   };
 
-  if (isLoading) {
+  if (isLoading && !data) { // Tampilkan loading hanya jika belum ada data sama sekali
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4">
         <div className="text-center">
           <Activity className="w-16 h-16 text-blue-500 animate-spin mx-auto mb-4" />
-          <h2 className="text-2xl font-semibold mb-2">Processing Analysis...</h2>
+          <h2 className="text-2xl font-semibold mb-2">Loading Analysis Data...</h2>
           <p className="text-gray-600 dark:text-gray-300 mb-4">
-            The AI is meticulously examining the PCAP file. This might take a few moments.
+            Fetching the latest insights for your PCAP file.
           </p>
           <Progress value={data?.status === 'Processing' ? 50 : (data?.status === 'Pending' ? 25 : 10)} className="w-full max-w-md mx-auto" />
-           {data?.status && <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Status: {data.status}</p>}
+           {data?.status && <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Current Status: {data.status}</p>}
           <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Analysis ID: {analysisId}</p>
         </div>
       </div>
@@ -388,24 +410,49 @@ export default function AIInsights({ analysisId, initialData: initialServerData,
     );
   }
 
-  if (!data) {
+  if (!data) { // Jika data null setelah loading selesai (bukan karena error eksplisit)
     return (
       <Alert className="max-w-2xl mx-auto my-8">
         <Info className="h-4 w-4" />
         <AlertTitle>No Data Available</AlertTitle>
         <AlertDescription>
-          <p>Analysis data could not be loaded or is not available for ID: {analysisId}. It might still be processing or an issue occurred.</p>
+          <p>Analysis data could not be loaded for ID: {analysisId}. It might still be processing, or an issue occurred during fetch.</p>
            { (initialServerData?.status === 'Processing' || initialServerData?.status === 'Pending') &&
-             <p className="my-2">The analysis is currently: <strong>{initialServerData?.status}</strong>. Please wait or try refreshing.</p>
+             <p className="my-2">The analysis was last known to be: <strong>{initialServerData?.status}</strong>. Please wait or try refreshing.</p>
            }
           <Button onClick={fetchData} variant="outline" className="mt-4">
-            <RefreshCw className="mr-2 h-4 w-4" /> Retry
+            <RefreshCw className="mr-2 h-4 w-4" /> Retry Fetch
           </Button>
         </AlertDescription>
       </Alert>
     );
   }
+  
+  // Jika data ada, tapi statusnya masih processing, tampilkan UI utama dengan indikator loading
+  if (data.status === 'Processing' || data.status === 'Pending') {
+    // Optionally, show a less intrusive loading state on top of the existing data
+    // For now, we'll show a prominent message if it's still processing
+     return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-4">
+        <div className="text-center">
+          <Activity className="w-16 h-16 text-blue-500 animate-spin mx-auto mb-4" />
+          <h2 className="text-2xl font-semibold mb-2">Analysis in Progress...</h2>
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
+            The AI is still examining the PCAP file ({data.status}). The page will auto-refresh.
+          </p>
+          <Progress value={data.status === 'Processing' ? 60 : 30} className="w-full max-w-md mx-auto" />
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">File: {data.fileName || "N/A"}</p>
+          <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">Analysis ID: {analysisId}</p>
+           <Button onClick={fetchData} variant="outline" className="mt-6">
+            <RefreshCw className="mr-2 h-4 w-4" /> Refresh Now
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
+
+  // ----- Tampilan Utama Setelah Data AI Analysis Diterima dan Selesai -----
   return (
     <TooltipProvider> 
       <div className="space-y-8 p-4 md:p-6">
