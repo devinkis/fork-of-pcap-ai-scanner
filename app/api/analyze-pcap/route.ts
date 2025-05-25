@@ -304,10 +304,8 @@ export async function POST(request: NextRequest) {
     console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisIdFromBody}, Stats:`, JSON.stringify(dataForAI.statistics, null, 2));
 
     // --- PERUBAHAN MULAI ---
-    const { text: rawAnalysisText } = await generateText({
-      model: groqProvider(modelNameFromEnv as any), // Gunakan groqProvider
-      // prompt: ... (prompt Anda tetap sama) ...
-    // --- PERUBAHAN SELESAI ---
+      const { text: rawAnalysisText } = await generateText({
+      model: groqProvider(modelNameFromEnv as any), // Pastikan ini sudah benar
       prompt:  `
         You are a network security expert analyzing PCAP data.
         The data is from file: "${dataForAI.fileName}" (size: ${dataForAI.fileSize} bytes, analysis ID: ${dataForAI.analysisId}).
@@ -322,7 +320,8 @@ export async function POST(request: NextRequest) {
         Based on THIS SPECIFIC data:
         1. Provide a concise summary of your findings. What is the overall security posture observed from this data?
         2. Determine a threat level (low, medium, high, critical).
-        3. List up to 5 specific, actionable findings. For each finding:
+        3. Provide a traffic behavior score from 0 (very benign) to 100 (highly anomalous/malicious) with a brief justification.
+        4. List up to 5 specific, actionable findings. For each finding:
             - id: a unique string for this finding (e.g., "finding-dns-tunnel-01")
             - title: a short, descriptive title
             - description: a detailed explanation of what was observed
@@ -332,16 +331,16 @@ export async function POST(request: NextRequest) {
             - category: (malware, anomaly, exfiltration, vulnerability, reconnaissance, policy-violation, benign-but-noteworthy)
             - affectedHosts: (optional) list of IPs primarily involved in this finding (use actual IPs if identified in parsing)
             - relatedPackets: (optional) reference 'no' field from sample packets if applicable (e.g., [1, 5])
-        4. Identify up to 3-5 Indicators of Compromise (IOCs) if any are strongly suggested by the data. For each IOC:
+        5. Identify up to 3-5 Indicators of Compromise (IOCs) if any are strongly suggested by the data. For each IOC:
             - type: (ip, domain, url, hash)
             - value: the IOC value (use actual IPs or domains if identified)
             - context: why this is an IOC based on the data
             - confidence: (0-100)
-        5. Suggest 2-3 general recommendations for improving security based on patterns seen.
+        6. Suggest 2-3 general recommendations for improving security based on patterns seen.
             - title
             - description
             - priority: (low, medium, high)
-        6. Create a brief timeline of up to 3-5 most significant events if discernible from the provided data (use timestamps from sample packets if relevant, use 'no' field for reference).
+        7. Create a brief timeline of up to 3-5 most significant events if discernible from the provided data (use timestamps from sample packets if relevant, use 'no' field for reference).
             - time: (ISO string or relative time like "Packet Sample #1 Timestamp")
             - event: description of the event
             - severity: (info, warning, error)
@@ -350,13 +349,14 @@ export async function POST(request: NextRequest) {
         {
           "summary": "...",
           "threatLevel": "...",
-          "findings": [ { "id": "...", "title": "...", ... } ],
-          "iocs": [ { "type": "...", "value": "...", ... } ],
+          "trafficBehaviorScore": { "score": 0, "justification": "..." },
+          "findings": [ { "id": "...", "title": "...", "description": "...", "severity": "...", "confidence": 0, "recommendation": "...", "category": "...", "affectedHosts": [], "relatedPackets": [] } ],
+          "iocs": [ { "type": "ip", "value": "...", "context": "...", "confidence": 0 } ],
           "statistics": ${JSON.stringify(dataForAI.statistics)}, 
-          "recommendations": [ { "title": "...", ... } ],
+          "recommendations": [ { "title": "...", "description": "...", "priority": "..." } ],
           "timeline": [ { "time": "...", "event": "...", "severity": "..." } ]
         }
-        Your response MUST start with '{' and end with '}'. Do NOT include any text or markdown formatting (like \`\`\`json) before or after the JSON object itself. The entire response must be ONLY the JSON object. If the provided PCAP data is insufficient or unclear for a detailed analysis, you MUST still return a valid JSON object with a 'summary' field explaining this, and other fields like 'findings' and 'iocs' can be empty arrays.
+        Your response MUST start with '{' and end with '}'. Do NOT include any text or markdown formatting (like \`\`\`json) before or after the JSON object itself. The entire response must be ONLY the JSON object. If the provided PCAP data is insufficient or unclear for a detailed analysis, you MUST still return a valid JSON object with a 'summary' field explaining this, and other fields like 'findings' and 'iocs' can be empty arrays, and trafficBehaviorScore can have a low score with justification "insufficient data".
       `,
     });
 

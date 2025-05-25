@@ -3,84 +3,54 @@ import { type NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import * as VirusTotal from "@/lib/virustotal";
 import * as MalwareBazaar from "@/lib/malwarebazaar";
-// --- TAMBAHKAN IMPOR INI ---
 import * as OTX from "@/lib/otx";
-// --- SELESAI PENAMBAHAN ---
+import * as AbuseIPDB from "@/lib/abuseipdb";
+import * as Talos from "@/lib/talosintelligence";
 
 interface ValidationRequest {
   type: "ip" | "domain" | "url" | "hash";
   value: string;
 }
 
+// Perbarui ValidationResponse untuk menyertakan hasil baru
 interface ValidationResponse {
   ioc: {
     type: string;
     value: string;
   };
   results: {
-    virusTotal?: {
-      detectionRatio: string;
-      threatLevel: "clean" | "suspicious" | "malicious";
-      engines: Array<{
-        name: string;
-        category: string;
-        result: string;
-      }>;
-      lastAnalysisDate?: string;
-      reputation?: number;
-    };
+    virusTotal?: VirusTotal.VirusTotalResponse["data"]["attributes"];
     malwareBazaar?: {
       detected: boolean;
-      details: {
-        fileName: string;
-        fileType: string;
-        fileSize: number;
-        firstSeen: string;
-        lastSeen: string;
-        tags: string[];
-        signature: string | null;
-        reporter: string;
-        deliveryMethod: string;
-      } | null;
+      details: MalwareBazaar.MalwareBazaarResponse["data"][0] | null;
     };
-    // --- TAMBAHKAN BAGIAN INI ---
-    otxAlienvault?: OTX.OTXIndicatorDetails | { message: string }; // Bisa hasil atau pesan error sederhana
-    // --- SELESAI PENAMBAHAN ---
+    otxAlienvault?: OTX.OTXIndicatorDetails | { message: string };
+    abuseIPDB?: AbuseIPDB.AbuseIPDBReport | { message: string }; // Menggunakan tipe yang benar
+    talosIntelligence?: Talos.TalosReputation | { message: string };
   };
   errors?: {
     virusTotal?: string;
     malwareBazaar?: string;
-    // --- TAMBAHKAN BAGIAN INI ---
     otxAlienvault?: string;
-    // --- SELESAI PENAMBAHAN ---
+    abuseIPDB?: string;
+    talosIntelligence?: string;
   };
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // Otentikasi bisa opsional jika Anda mau, tergantung kebutuhan
     const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
-    }
+    // if (!user) {
+    //   return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    // }
 
     const vtApiKey = process.env.VIRUSTOTAL_API_KEY;
     const mbApiKey = process.env.MALWAREBAZAAR_API_KEY;
-    // --- TAMBAHKAN INI ---
     const otxApiKey = process.env.OTX_API_KEY;
-    // --- SELESAI PENAMBAHAN ---
+    const abuseIPDBApiKey = process.env.ABUSEIPDB_API_KEY;
 
-    if (!vtApiKey) {
-      return NextResponse.json(
-        { error: "VirusTotal API key not configured." },
-        { status: 500 },
-      );
-    }
-    // OTX API Key juga penting
-    if (!otxApiKey) {
-      console.warn("OTX_API_KEY is not configured. OTX lookups will be skipped.");
-      // Tidak perlu return error, biarkan fitur lain berjalan
-    }
-
+    if (!vtApiKey) return NextResponse.json({ error: "VirusTotal API key not configured." }, { status: 500 });
 
     let requestData: ValidationRequest;
     try {
@@ -90,16 +60,10 @@ export async function POST(request: NextRequest) {
     }
 
     const { type, value } = requestData;
-
-    if (!type || !value) {
-      return NextResponse.json({ error: "Missing required parameters: type and value" }, { status: 400 });
-    }
-    if (!["ip", "domain", "url", "hash"].includes(type)) {
-      return NextResponse.json({ error: "Invalid IOC type." }, { status: 400 });
-    }
     const trimmedValue = value.trim();
-    if (!trimmedValue) {
-      return NextResponse.json({ error: "IOC value cannot be empty" }, { status: 400 });
+
+    if (!type || !trimmedValue || !["ip", "domain", "url", "hash"].includes(type)) {
+      return NextResponse.json({ error: "Invalid or missing parameters: type and value" }, { status: 400 });
     }
 
     const response: ValidationResponse = {
@@ -108,71 +72,58 @@ export async function POST(request: NextRequest) {
       errors: {},
     };
 
-    // VirusTotal Check (tetap sama)
+    // VirusTotal Check
     try {
-      let vtResult: VirusTotal.VirusTotalResponse | null = null;
+      let vtResultData: VirusTotal.VirusTotalResponse | null = null;
       switch (type) {
-        case "ip": vtResult = await VirusTotal.checkIpAddress(vtApiKey, trimmedValue); break;
-        case "domain": vtResult = await VirusTotal.checkDomain(vtApiKey, trimmedValue); break;
-        case "url": vtResult = await VirusTotal.checkUrl(vtApiKey, trimmedValue); break;
-        case "hash": vtResult = await VirusTotal.checkFileHash(vtApiKey, trimmedValue); break;
+        case "ip": vtResultData = await VirusTotal.checkIpAddress(vtApiKey, trimmedValue); break;
+        case "domain": vtResultData = await VirusTotal.checkDomain(vtApiKey, trimmedValue); break;
+        case "url": vtResultData = await VirusTotal.checkUrl(vtApiKey, trimmedValue); break;
+        case "hash": vtResultData = await VirusTotal.checkFileHash(vtApiKey, trimmedValue); break;
       }
-      if (vtResult && vtResult.data) {
-        const stats = vtResult.data.attributes.last_analysis_stats;
-        response.results.virusTotal = {
-          detectionRatio: VirusTotal.getDetectionRatio(stats),
-          threatLevel: VirusTotal.getThreatLevel(stats),
-          engines: VirusTotal.getTopDetections(vtResult.data.attributes.last_analysis_results).map(e => ({ name: e.engine, category: e.category, result: e.result })),
-          lastAnalysisDate: vtResult.data.attributes.last_analysis_date ? new Date(vtResult.data.attributes.last_analysis_date * 1000).toISOString() : undefined,
-          reputation: vtResult.data.attributes.reputation,
-        };
+      if (vtResultData?.data) {
+        response.results.virusTotal = vtResultData.data.attributes;
+      } else if (vtResultData?.error) {
+        response.errors!.virusTotal = vtResultData.error.message;
       }
     } catch (error: any) {
       console.error("VirusTotal API error:", error);
       response.errors!.virusTotal = error.message || "Unknown VirusTotal error";
     }
 
-    // MalwareBazaar Check (tetap sama, hanya untuk hash)
+    // MalwareBazaar Check (hanya untuk hash)
     if (type === "hash") {
       try {
         const mbResult = await MalwareBazaar.checkHash(mbApiKey || "", trimmedValue);
-        response.results.malwareBazaar = {
-          detected: MalwareBazaar.isMalicious(mbResult),
-          details: MalwareBazaar.getMalwareDetails(mbResult),
-        };
+        if (mbResult.query_status === "ok" && mbResult.data.length > 0) {
+            response.results.malwareBazaar = { detected: true, details: mbResult.data[0] };
+        } else {
+            response.results.malwareBazaar = { detected: false, details: null };
+            if (mbResult.query_status !== "no_results" && mbResult.query_status !== "hash_not_found") {
+                response.errors!.malwareBazaar = `MalwareBazaar: ${mbResult.query_status}`;
+            }
+        }
       } catch (error: any) {
         console.error("MalwareBazaar API error:", error);
         response.errors!.malwareBazaar = error.message || "Unknown MalwareBazaar error";
       }
     }
 
-    // --- TAMBAHKAN OTX ALIENVAULT CHECK ---
-    if (otxApiKey) { // Hanya jalankan jika API Key OTX ada
+    // OTX AlienVault Check
+    if (otxApiKey) {
       try {
         let otxResult: OTX.OTXIndicatorDetails | OTX.OTXError | null = null;
         switch (type) {
-          case "ip":
-            otxResult = await OTX.checkIpOTX(otxApiKey, trimmedValue);
-            break;
-          case "domain":
-            otxResult = await OTX.checkDomainOTX(otxApiKey, trimmedValue);
-            break;
-          case "url":
-            otxResult = await OTX.checkUrlOTX(otxApiKey, trimmedValue);
-            break;
-          case "hash":
-            otxResult = await OTX.checkFileHashOTX(otxApiKey, trimmedValue);
-            break;
+          case "ip": otxResult = await OTX.checkIpOTX(otxApiKey, trimmedValue); break;
+          case "domain": otxResult = await OTX.checkDomainOTX(otxApiKey, trimmedValue); break;
+          case "url": otxResult = await OTX.checkUrlOTX(otxApiKey, trimmedValue); break;
+          case "hash": otxResult = await OTX.checkFileHashOTX(otxApiKey, trimmedValue); break;
         }
-
         if (otxResult) {
           if (OTX.isOTXError(otxResult)) {
-            // Jika OTX mengembalikan pesan error (misalnya, not found), tampilkan sebagai pesan
-            response.results.otxAlienvault = { message: otxResult.detail || otxResult.error || "Indicator not found or error in OTX." };
-            if (otxResult.detail?.includes("not found")) {
-                 // Tidak dianggap error fatal jika hanya "not found"
-            } else {
-                response.errors!.otxAlienvault = otxResult.detail || otxResult.error || "OTX error";
+            response.results.otxAlienvault = { message: otxResult.detail || otxResult.error || "OTX: Indicator not processed."};
+            if (!otxResult.detail?.toLowerCase().includes("not found")) {
+                 response.errors!.otxAlienvault = otxResult.detail || otxResult.error;
             }
           } else {
             response.results.otxAlienvault = otxResult;
@@ -183,9 +134,43 @@ export async function POST(request: NextRequest) {
         response.errors!.otxAlienvault = error.message || "Unknown OTX AlienVault error";
       }
     } else {
-      response.results.otxAlienvault = { message: "OTX API Key not configured. Skipping OTX lookup." };
+      response.results.otxAlienvault = { message: "OTX API Key not configured. Skipping." };
     }
-    // --- SELESAI OTX CHECK ---
+
+    // AbuseIPDB Check (hanya untuk IP)
+    if (type === "ip" && abuseIPDBApiKey) {
+      try {
+        const abuseResult = await AbuseIPDB.checkIpAbuseIPDB(abuseIPDBApiKey, trimmedValue);
+        if (AbuseIPDB.isAbuseIPDBError(abuseResult)) {
+          response.results.abuseIPDB = { message: abuseResult.errors[0]?.detail || "AbuseIPDB: Error processing IP."};
+          response.errors!.abuseIPDB = abuseResult.errors[0]?.detail || "AbuseIPDB error";
+        } else {
+          response.results.abuseIPDB = abuseResult as AbuseIPDB.AbuseIPDBReport; // Pastikan tipe benar
+        }
+      } catch (error: any) {
+        console.error("AbuseIPDB API error:", error);
+        response.errors!.abuseIPDB = error.message || "Unknown AbuseIPDB error";
+      }
+    } else if (type === "ip" && !abuseIPDBApiKey) {
+        response.results.abuseIPDB = { message: "AbuseIPDB API Key not configured. Skipping." };
+    }
+
+    // Talos Intelligence Check (hanya untuk IP)
+    if (type === "ip") {
+      try {
+        const talosResult = await Talos.getTalosReputation(trimmedValue);
+        if (talosResult.errorMessage) {
+          response.results.talosIntelligence = { message: talosResult.errorMessage };
+          // Tidak selalu dianggap error fatal jika hanya scraping gagal
+          // response.errors!.talosIntelligence = talosResult.errorMessage; 
+        } else {
+          response.results.talosIntelligence = talosResult;
+        }
+      } catch (error: any) {
+        console.error("Talos Intelligence scraping error:", error);
+        response.errors!.talosIntelligence = error.message || "Unknown Talos Intelligence error";
+      }
+    }
 
     if (Object.keys(response.errors || {}).length === 0) {
       delete response.errors;
