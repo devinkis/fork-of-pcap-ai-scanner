@@ -4,10 +4,10 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { PlusCircle, DatabaseBackup, AlertCircle, CheckCircle, Clock } from 'lucide-react'
 import { getUser } from '@/lib/auth' 
-// import ListChecks from "../components/list-checks"; // DIHAPUS - Karena berkas tidak ada
+import ListChecks from "../components/list-checks"; // DIHAPUS - Karena berkas tidak ada
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-// import { getAnalysesCount, getRecentAnalyses, getStatusCounts } from '@/lib/actions/analysis.actions' // DIHAPUS - Karena berkas tidak ada
-// import { Analysis } from '@/lib/definitions' // DIHAPUS - Karena berkas tidak ada
+import { getAnalysesCount, getRecentAnalyses, getStatusCounts } from '@/lib/actions/analysis.actions' // DIHAPUS - Karena berkas tidak ada
+import { Analysis } from '@/lib/definitions' // DIHAPUS - Karena berkas tidak ada
 import { formatDistanceToNow } from 'date-fns' // Ini adalah paket yang valid, biarkan
 import { Badge } from '@/components/ui/badge'
 
