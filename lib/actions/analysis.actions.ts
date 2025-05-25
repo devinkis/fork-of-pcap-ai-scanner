@@ -105,3 +105,41 @@ export async function getStatusCounts(): Promise<{ completed?: number; processin
     return { completed: 0, processing: 0, pending: 0, error: 0, unknown: 0 };
   }
 }
+// --- TAMBAHKAN FUNGSI INI ---
+export async function getPcapAnalysesForUser(userId: string): Promise<PcapAnalysisRecord[]> {
+  if (!userId) {
+    console.error("getPcapAnalysesForUser: userId is required.");
+    return [];
+  }
+  try {
+    console.log(`[ACTIONS] Fetching PCAP analyses for user ID: ${userId}`);
+    const pcapFilesFromDb = await db.pcapFile.findMany({ userId: userId });
+    
+    if (!pcapFilesFromDb) {
+        console.warn(`[ACTIONS] No PCAP files found in DB for user ID: ${userId}`);
+        return [];
+    }
+    console.log(`[ACTIONS] Found ${pcapFilesFromDb.length} PCAP files in DB for user ID: ${userId}`);
+
+    return pcapFilesFromDb.map(file => {
+      // Pastikan mapping sesuai dengan definisi PcapAnalysisRecord dan data dari db.pcapFile.findMany
+      // Terutama createdAt, pastikan itu adalah objek Date atau string ISO yang bisa di-parse menjadi Date.
+      // Metode mapPcapFileRow di neon-db.ts sudah mengembalikan createdAt sebagai Date.
+      return {
+        analysisId: file.analysisId,
+        originalName: file.originalName,
+        createdAt: new Date(file.createdAt), // Jika createdAt sudah Date, new Date() tidak apa-apa
+        status: (file as any).status || 'COMPLETED', // Sesuaikan dengan field status Anda
+        size: file.size,
+        userId: file.userId,
+        fileName: file.fileName,
+        blobUrl: file.blobUrl,
+      };
+    });
+  } catch (error) {
+    console.error(`[ACTIONS] Error fetching PCAP analyses for user ${userId}:`, error);
+    // throw new Error("Failed to fetch PCAP analyses."); // Atau kembalikan array kosong untuk graceful degradation
+    return [];
+  }
+}
+// --- SELESAI PENAMBAHAN ---

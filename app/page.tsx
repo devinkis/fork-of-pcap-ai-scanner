@@ -19,6 +19,7 @@ import { PcapUploader } from "@/components/pcap-uploader";
 import { getCurrentUser } from "@/lib/auth"; // Untuk mendapatkan info user
 //import { getPcapAnalysesForUser, PcapAnalysisRecord } from "@/lib/actions/analysis.actions"; // Asumsi fungsi ini ada
 import { 
+  getPcapAnalysesForUser,
   getAnalysesCount, 
   getRecentAnalyses, 
   getStatusCounts 
