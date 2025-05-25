@@ -1,12 +1,16 @@
+// Path: devinkis/fork-of-pcap-ai-scanner/fork-of-pcap-ai-scanner-da289a06468a369b1b56ff7cba2dd3429fc5431a/app/api/analyze-pcap/route.ts
 import { type NextRequest, NextResponse } from "next/server";
 import { generateText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+// --- PERUBAHAN MULAI ---
+// import { createOpenAI } from "@ai-sdk/openai"; // Hapus atau komentari baris ini
+import { createGroq } from "@ai-sdk/groq"; // Tambahkan impor untuk Groq
+// --- PERUBAHAN SELESAI ---
 import db from "@/lib/neon-db";
 import PcapParser from 'pcap-parser';
 import { Readable } from 'stream';
 
 const MAX_SAMPLES_FOR_AI = 10;
-const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; // Anda bisa menaikkan ini jika performa memungkinkan
+const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000;
 
 async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string): Promise<any> {
   console.log(`[PARSE_PCAP_PARSER_STREAM] Attempting to parse PCAP from URL: ${fileUrl} (File: ${fileName})`);
@@ -58,7 +62,6 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
             if (packet.data && packet.data.length >= 14) { // Ethernet Header
                 const etherType = packet.data.readUInt16BE(12);
                 if (etherType === 0x0800) { // IPv4
-                    // guessedProtocol = "IPv4"; // Kita akan set guessedProtocol ke L4 jika ada
                     if (packet.data.length >= 14 + 20) { // Min IPv4 Header
                         const ipHeaderStart = 14;
                         const ipHeaderIHL = (packet.data[ipHeaderStart] & 0x0F);
@@ -75,7 +78,7 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
                             else if (ipProtocolField === 17) transportProtocolName = "UDP";
                             else if (ipProtocolField === 1) transportProtocolName = "ICMP";
                             
-                            guessedProtocol = transportProtocolName; // Set ke L4 atau Proto IP
+                            guessedProtocol = transportProtocolName;
                             packetInfo = `IPv4 ${sourceIp} -> ${destIp} (${guessedProtocol})`;
                         } else {
                              guessedProtocol = "IPv4_Truncated";
@@ -142,12 +145,12 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
       });
 
       const resolveResults = () => {
-        if (promiseResolved) return; // Pastikan hanya resolve sekali
+        if (promiseResolved) return; 
         promiseResolved = true;
 
         const topProtocols = Object.entries(protocolGuessStats)
             .sort(([,a],[,b]) => b-a)
-            .slice(0, 5) // Ambil 5 protokol teratas
+            .slice(0, 5) 
             .reduce((obj, [key, val]) => ({ ...obj, [key]: val }), {});
 
         const calculatedTopTalkers = Object.entries(ipTraffic)
@@ -193,23 +196,28 @@ async function parsePcapFileWithReadableStream(fileUrl: string, fileName: string
   }
 }
 
-const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-const openRouterBaseURL = process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1";
-const modelNameFromEnv = process.env.OPENROUTER_MODEL_NAME || "mistralai/mistral-7b-instruct"; 
+// --- PERUBAHAN MULAI ---
+const groqApiKey = process.env.GROQ_API_KEY;
+// Groq API base URL biasanya tidak perlu di-override, SDK akan menanganinya.
+// const groqBaseURL = process.env.GROQ_BASE_URL; // Jika diperlukan
+const modelNameFromEnv = process.env.GROQ_MODEL_NAME || "llama3-8b-8192"; // Ganti dengan model Groq default Anda
 
-let openRouterProvider: ReturnType<typeof createOpenAI> | null = null;
+let groqProvider: ReturnType<typeof createGroq> | null = null;
 
-if (openRouterApiKey && openRouterApiKey.trim() !== "") {
-  openRouterProvider = createOpenAI({
-    apiKey: openRouterApiKey,
-    baseURL: openRouterBaseURL,
+if (groqApiKey && groqApiKey.trim() !== "") {
+  groqProvider = createGroq({
+    apiKey: groqApiKey,
+    // baseURL: groqBaseURL, // Hanya jika Anda perlu override base URL Groq
   });
-  console.log("[API_ANALYZE_PCAP_CONFIG] OpenRouter provider configured using createOpenAI.");
+  console.log("[API_ANALYZE_PCAP_CONFIG] Groq provider configured using createGroq.");
 } else {
-  console.error("[CRITICAL_CONFIG_ERROR] OPENROUTER_API_KEY environment variable is missing or empty. AI features will be disabled.");
+  console.error("[CRITICAL_CONFIG_ERROR] GROQ_API_KEY environment variable is missing or empty. AI features will be disabled.");
 }
+// --- PERUBAHAN SELESAI ---
+
 
 function extractJsonFromString(text: string): string | null {
+    // ... (fungsi ini tetap sama)
     if (!text || text.trim() === "") {
         console.warn("[EXTRACT_JSON] AI returned empty or whitespace-only text.");
         return null; 
@@ -237,7 +245,7 @@ function extractJsonFromString(text: string): string | null {
     }
     const trimmedText = text.trim();
     console.log("[EXTRACT_JSON] No markdown or clear JSON object found, returning original trimmed text. Length:", trimmedText.length);
-    return trimmedText === "" ? null : trimmedText; 
+    return trimmedText === "" ? null : trimmedText;
 }
 
 export async function POST(request: NextRequest) {
@@ -250,17 +258,19 @@ export async function POST(request: NextRequest) {
     analysisIdFromBody = body.analysisId;
     console.log(`[API_ANALYZE_PCAP] Received request for analysisId: ${analysisIdFromBody}`);
 
-    if (!openRouterProvider) {
-      console.error("[API_ANALYZE_PCAP] OpenRouter provider is not configured. OPENROUTER_API_KEY is likely missing or empty.");
-      return NextResponse.json({ error: "AI Provider (OpenRouter) is not configured. API key might be missing." }, { status: 500 });
+    // --- PERUBAHAN MULAI ---
+    if (!groqProvider) {
+      console.error("[API_ANALYZE_PCAP] Groq provider is not configured. GROQ_API_KEY is likely missing or empty.");
+      return NextResponse.json({ error: "AI Provider (Groq) is not configured. API key might be missing." }, { status: 500 });
     }
+    // --- PERUBAHAN SELESAI ---
 
     if (!analysisIdFromBody) {
       console.error("[API_ANALYZE_PCAP] No analysis ID provided in the request body.");
       return NextResponse.json({ error: "No analysis ID provided" }, { status: 400 });
     }
 
-    const pcapRecord = await db.pcapFile.findUnique({ analysisId: analysisIdFromBody });
+    const pcapRecord = await db.pcapFile.findUnique({ analysisId: analysisIdFromBody }); //
 
     if (!pcapRecord) {
       console.error(`[API_ANALYZE_PCAP] PCAP record not found in DB for analysisId: ${analysisIdFromBody}`);
@@ -293,8 +303,11 @@ export async function POST(request: NextRequest) {
 
     console.log(`[API_ANALYZE_PCAP] Data prepared for AI model for analysisId: ${analysisIdFromBody}, Stats:`, JSON.stringify(dataForAI.statistics, null, 2));
 
+    // --- PERUBAHAN MULAI ---
     const { text: rawAnalysisText } = await generateText({
-      model: openRouterProvider(modelNameFromEnv as any),
+      model: groqProvider(modelNameFromEnv as any), // Gunakan groqProvider
+      // prompt: ... (prompt Anda tetap sama) ...
+    // --- PERUBAHAN SELESAI ---
       prompt:  `
         You are a network security expert analyzing PCAP data.
         The data is from file: "${dataForAI.fileName}" (size: ${dataForAI.fileSize} bytes, analysis ID: ${dataForAI.analysisId}).
@@ -373,9 +386,11 @@ export async function POST(request: NextRequest) {
     
     const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred during AI analysis.";
     
+    // --- PERUBAHAN MULAI ---
     if (error instanceof Error && (error.name === 'AI_LoadAPIKeyError' || error.message.includes("API key") || error.message.includes("authentication"))) {
-        return NextResponse.json({ error: "AI Provider API key is missing, invalid, or not authorized. Please check server configuration and OpenRouter account status.", details: error.message }, { status: 500 });
+        return NextResponse.json({ error: "AI Provider (Groq) API key is missing, invalid, or not authorized. Please check server configuration and Groq account status.", details: error.message }, { status: 500 });
     }
+    // --- PERUBAHAN SELESAI ---
     if (error instanceof SyntaxError) { 
         console.error(`[API_ANALYZE_PCAP] JSON Parsing Error. Original AI text was (first 500 chars):`, rawAnalysisTextForErrorLog?.substring(0, 500));
         console.error(`[API_ANALYZE_PCAP] JSON Parsing Error. Cleaned text attempted for parse was (first 500 chars):`, cleanedJsonTextForErrorLog?.substring(0, 500));
