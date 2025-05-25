@@ -1,17 +1,31 @@
 // app/analysis/[id]/page.tsx
-import { Suspense } from "react";
-import { PacketAnalysis } from "@/components/packet-analysis"; //
-import { AIInsights } from "@/components/ai-insights"; //
-import { NetworkGraph } from "@/components/network-graph"; //
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; //
-import { Skeleton } from "@/components/ui/skeleton"; //
-import { getCurrentUser, requireAuth } from "@/lib/auth"; //
-import { notFound, redirect } from "next/navigation"; ///not-found.tsx]
-import db from "@/lib/neon-db"; //
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; //
-import { Button } from "@/components/ui/button"; //
+"use client";
+
+import { Suspense, useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { PacketAnalysis } from "@/components/packet-analysis";
+import { AIInsights } from "@/components/ai-insights";
+import { NetworkGraph } from "@/components/network-graph";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { FileSearch, Activity, Brain, AlertCircle } from "lucide-react";
+import { FileSearch, Activity, Brain, AlertCircle, Trash2, Loader2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/components/ui/use-toast"; // Impor useToast
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"; // Impor Card
+
 
 interface AnalysisPageProps {
   params: {
@@ -19,53 +33,103 @@ interface AnalysisPageProps {
   };
 }
 
-export default async function AnalysisPage({ params }: AnalysisPageProps) {
-  await requireAuth();
-  const { id } = params;
-  const user = await getCurrentUser();
+interface PcapFileDetails {
+  originalName: string | null;
+  analysisId: string;
+}
 
-  if (!id || !user) {
-    console.error("Analysis page error: Missing ID or user", { id, userId: user?.id });
-    notFound();
+export default function AnalysisPage({ params }: AnalysisPageProps) {
+  const { id: analysisId } = params;
+  const router = useRouter();
+  const { toast } = useToast(); // Panggil useToast hook
+  const [pcapFileDetails, setPcapFileDetails] = useState<PcapFileDetails | null>(null);
+  const [isLoadingFileDetails, setIsLoadingFileDetails] = useState(true);
+  const [errorFileDetails, setErrorFileDetails] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  useEffect(() => {
+    async function fetchPcapDetails() {
+      if (!analysisId) return;
+      setIsLoadingFileDetails(true);
+      setErrorFileDetails(null);
+      try {
+        const response = await fetch(`/api/get-pcap/${analysisId}`);
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to fetch PCAP details: ${response.statusText}`);
+        }
+        const data = await response.json();
+        if (data.success && data.files && data.files.length > 0) {
+          setPcapFileDetails({
+            originalName: data.files[0].metadata?.originalName || data.files[0].pathname.split('/').pop() || "Unknown File",
+            analysisId: analysisId,
+          });
+        } else {
+          throw new Error(data.error || "PCAP file details not found.");
+        }
+      } catch (err) {
+        console.error("Error fetching PCAP details for page:", err);
+        setErrorFileDetails(err instanceof Error ? err.message : "Could not load file details.");
+      } finally {
+        setIsLoadingFileDetails(false);
+      }
+    }
+    fetchPcapDetails();
+  }, [analysisId]);
+
+
+  const handleDeleteAnalysis = async () => {
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`/api/delete-pcap/${analysisId}`, {
+        method: 'DELETE',
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Failed to delete analysis.");
+      }
+      toast({
+        title: "Analysis Deleted",
+        description: `Analysis for ${pcapFileDetails?.originalName || analysisId} has been successfully deleted.`,
+        variant: "default",
+      });
+      router.push("/"); 
+    } catch (err) {
+      console.error("Error deleting analysis:", err);
+      toast({
+        title: "Error Deleting Analysis",
+        description: err instanceof Error ? err.message : "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  if (isLoadingFileDetails) {
+    return (
+      <main className="container mx-auto py-8 px-4 md:px-6">
+        <Skeleton className="h-10 w-3/4 mb-2" />
+        <Skeleton className="h-6 w-1/2 mb-6" />
+        <Skeleton className="h-10 w-full rounded-lg mb-6" />
+        <AnalysisPageSkeleton />
+      </main>
+    );
   }
 
-  let pcapFile = null;
-  try {
-    console.log(`[ANALYSIS_PAGE] Fetching analysis ${id} for user ${user.id}`);
-    pcapFile = await db.pcapFile.findFirst({ //
-      where: {
-        analysisId: id,
-        userId: user.id,
-      },
-    });
-
-    if (!pcapFile) {
-      console.error(`[ANALYSIS_PAGE] Analysis not found: ${id} for user ${user.id}`);
-      notFound();
-    }
-    console.log(`[ANALYSIS_PAGE] Analysis found: ${id}, file: ${pcapFile.originalName}`);
-  } catch (dbError) {
-    console.error("[ANALYSIS_PAGE] Database error fetching analysis:", dbError);
-    // Menampilkan pesan error yang lebih informatif
+  if (errorFileDetails) {
     return (
       <main className="container mx-auto py-10 px-4 flex flex-col items-center justify-center min-h-[calc(100vh-var(--header-height,4rem))]">
         <Card className="w-full max-w-lg shadow-lg">
           <CardHeader className="text-center">
             <AlertCircle className="mx-auto h-12 w-12 text-red-500 mb-3" />
-            <CardTitle className="text-2xl text-red-600">Error Loading Analysis</CardTitle>
-            <CardDescription className="text-base">
-              We encountered a problem trying to load the details for this analysis.
-            </CardDescription>
+            <CardTitle className="text-2xl text-red-600">Error Loading Analysis Details</CardTitle>
           </CardHeader>
           <CardContent className="text-center">
-            <p className="text-muted-foreground mb-2">This could be a temporary issue or a problem with the analysis ID.</p>
-            {dbError instanceof Error && (
-              <p className="text-sm text-red-500 bg-red-50 dark:bg-red-900/30 p-3 rounded-md">Details: {dbError.message}</p>
-            )}
+            <p className="text-muted-foreground mb-2">{errorFileDetails}</p>
+            <p className="text-sm">Analysis ID: <span className="font-mono bg-muted dark:bg-slate-700 px-1 py-0.5 rounded">{analysisId}</span></p>
             <div className="mt-6 flex justify-center gap-4">
-              <Button asChild variant="outline">
-                <Link href="/">Return to Dashboard</Link>
-              </Button>
+              <Button asChild variant="outline"><Link href="/">Return to Dashboard</Link></Button>
             </div>
           </CardContent>
         </Card>
@@ -75,11 +139,37 @@ export default async function AnalysisPage({ params }: AnalysisPageProps) {
 
   return (
     <main className="container mx-auto py-8 px-4 md:px-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight md:text-4xl">PCAP Analysis Report</h1>
-        <p className="text-lg text-muted-foreground mt-1">
-          File: <span className="font-medium text-foreground">{pcapFile.originalName || "Unknown"}</span> | Analysis ID: <span className="font-mono text-xs bg-muted dark:bg-slate-700 px-1.5 py-0.5 rounded">{id}</span>
-        </p>
+      <div className="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight md:text-4xl">PCAP Analysis Report</h1>
+          <p className="text-lg text-muted-foreground mt-1">
+            File: <span className="font-medium text-foreground">{pcapFileDetails?.originalName || "Loading..."}</span> | Analysis ID: <span className="font-mono text-xs bg-muted dark:bg-slate-700 px-1.5 py-0.5 rounded">{analysisId}</span>
+          </p>
+        </div>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="destructive" disabled={isDeleting}>
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Delete Analysis
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the
+                PCAP analysis record and the associated file from storage.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDeleteAnalysis} disabled={isDeleting} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Yes, delete it
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
 
       <Tabs defaultValue="packets" className="w-full">
@@ -95,21 +185,19 @@ export default async function AnalysisPage({ params }: AnalysisPageProps) {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="packets" className="mt-0"> {/* mt-0 agar tidak ada jarak tambahan */}
+        <TabsContent value="packets" className="mt-0">
           <Suspense fallback={<AnalysisPageSkeleton />}>
-            <PacketAnalysis analysisId={id} />
+            <PacketAnalysis analysisId={analysisId} />
           </Suspense>
         </TabsContent>
-
         <TabsContent value="network" className="mt-0">
           <Suspense fallback={<AnalysisPageSkeleton />}>
-            <NetworkGraph analysisId={id} />
+            <NetworkGraph analysisId={analysisId} />
           </Suspense>
         </TabsContent>
-
         <TabsContent value="ai" className="mt-0">
           <Suspense fallback={<AnalysisPageSkeleton />}>
-            <AIInsights analysisId={id} />
+            <AIInsights analysisId={analysisId} />
           </Suspense>
         </TabsContent>
       </Tabs>
@@ -117,7 +205,7 @@ export default async function AnalysisPage({ params }: AnalysisPageProps) {
   );
 }
 
-function AnalysisPageSkeleton() { // Skeleton yang lebih generik untuk seluruh tab content
+function AnalysisPageSkeleton() { 
   return (
     <div className="space-y-8 animate-pulse">
       <div className="space-y-4">
