@@ -1,19 +1,20 @@
 // app/login/page.tsx
 "use client";
 
+import { useState, FormEvent } from 'react'; // Ditambahkan FormEvent dan useState
+import { useRouter } from 'next/navigation'; // Ditambahkan useRouter untuk redirect
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useFormState, useFormStatus } from 'react-dom';
-// PERUBAHAN: Path impor disesuaikan dengan informasi Anda
-import { authenticate } from '@/lib/auth'; 
-import { AlertCircle, LogInIcon, KeyRound } from "lucide-react";
+// HAPUS: useFormState dan useFormStatus tidak lagi digunakan jika tidak ada Server Action
+// HAPUS: import { authenticateCustomUser } from './actions'; 
+import { AlertCircle, LogInIcon } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import Link from 'next/link';
 
-function LoginButton() {
-  const { pending } = useFormStatus();
+// Komponen LoginButton bisa disederhanakan atau state loading dikelola di LoginPage
+function LoginButton({ pending }: { pending: boolean }) {
   return (
     <Button className="w-full" type="submit" aria-disabled={pending} disabled={pending}>
       {pending ? (
@@ -32,14 +33,53 @@ function LoginButton() {
 }
 
 export default function LoginPage() {
-  // Jika 'authenticate' dari '@/lib/auth' memiliki tanda tangan yang berbeda
-  // atau bukan server action yang diharapkan, Anda mungkin perlu menyesuaikan ini.
-  const [errorMessage, dispatch] = useFormState(authenticate, undefined);
+  const router = useRouter();
+  const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsLoading(true);
+    setErrorMessage(undefined);
+
+    const formData = new FormData(event.currentTarget);
+    // const email = formData.get('email') as string;
+    // const password = formData.get('password') as string;
+
+    try {
+      // Anda perlu mengganti ini dengan panggilan ke API route login Anda
+      // Contoh:
+      const response = await fetch('/api/auth/login', { // Ganti dengan path API Anda
+        method: 'POST',
+        body: formData, // Kirim FormData langsung jika API Anda bisa menanganinya,
+                       // atau buat objek JSON: body: JSON.stringify({ email, password })
+                       // dan set header 'Content-Type': 'application/json'
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setErrorMessage(result.message || 'Login failed. Please try again.');
+      } else {
+        // Jika login berhasil, API mungkin mengembalikan data user atau hanya status sukses.
+        // Cookie httpOnly akan disetel oleh API route.
+        // Redirect ke halaman utama atau dashboard.
+        console.log("Login successful, redirecting...");
+        router.push('/'); // Ganti dengan path redirect yang sesuai
+      }
+    } catch (error) {
+      console.error('Login submission error:', error);
+      setErrorMessage('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-900 dark:to-slate-800">
       <div className="w-full max-w-md">
-        <form action={dispatch} className="space-y-6">
+        {/* Ganti form action dengan onSubmit handler */}
+        <form onSubmit={handleSubmit} className="space-y-6">
           <Card className="shadow-2xl">
             <CardHeader className="space-y-1 text-center">
               <div className="flex justify-center mb-4">
@@ -85,7 +125,7 @@ export default function LoginPage() {
               )}
             </CardContent>
             <CardFooter className="flex flex-col items-center space-y-4">
-              <LoginButton />
+              <LoginButton pending={isLoading} />
               <div className="mt-4 text-center text-sm text-gray-600 dark:text-gray-400">
                 Don&apos;t have an account?{' '}
                 <Link href="/signup" className="font-medium text-blue-600 hover:underline dark:text-blue-400">
