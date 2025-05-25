@@ -1,558 +1,476 @@
-"use client"
+// components/network-graph.tsx
+"use client";
 
-import type React from "react"
-
-import { useState, useEffect, useRef } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import React, { useState, useEffect, useRef, useCallback } from "react"; // Tambahkan useCallback
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Loader2, AlertTriangle } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { Loader2, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge"
 
 interface NetworkGraphProps {
-  analysisId: string
+  analysisId: string;
 }
 
 interface Node {
-  id: string
-  label: string
-  type: "host" | "server" | "router" | "unknown"
-  connections: number
-  packets: number
-  bytes: number
-  x: number
-  y: number
-  radius: number
-  color: string
-  hasErrors: boolean
+  id: string; // IP Address
+  label: string; // IP Address atau nama host jika ada
+  type: "host" | "server" | "router" | "unknown"; // Tipe node bisa kita tentukan nanti
+  connections: number; // Jumlah link yang terhubung
+  packets: number; // Total paket yang melibatkan node ini
+  bytes: number; // Total byte yang melibatkan node ini
+  x: number;
+  y: number;
+  radius: number;
+  color: string;
+  hasErrors: boolean; // Jika ada koneksi error yang melibatkan node ini
 }
 
 interface Link {
-  source: string
-  target: string
-  value: number
-  packets: number
-  bytes: number
-  protocol: string
-  hasErrors: boolean
-  errorTypes: string[]
+  source: string; // IP source node
+  target: string; // IP destination node
+  value: number; // Bobot link, misal berdasarkan jumlah paket atau byte
+  packets: number;
+  bytes: number;
+  protocol: string;
+  hasErrors: boolean;
+  errorTypes?: string[]; // Jika ada error pada koneksi ini
+  // Tambahkan properti lain jika perlu, misal port
+  sourcePort?: number;
+  destPort?: number;
 }
 
 interface GraphData {
-  nodes: Node[]
-  links: Link[]
+  nodes: Node[];
+  links: Link[];
 }
 
+// Tipe data koneksi dari API /api/get-packet-data/[id]
+interface ApiConnection {
+  id: string;
+  sourceIp: string;
+  sourcePort: number;
+  destIp: string;
+  destPort: number;
+  protocol: string;
+  state: string;
+  packets: number[]; // Array ID paket, kita akan gunakan length-nya
+  startTime: string;
+  endTime?: string;
+  hasErrors: boolean;
+  errorTypes: string[];
+  // Kita mungkin perlu menambahkan totalBytes per koneksi dari API jika ingin digunakan untuk 'value'
+}
+
+
 export function NetworkGraph({ analysisId }: NetworkGraphProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [loading, setLoading] = useState(true)
-  const [graphData, setGraphData] = useState<GraphData | null>(null)
-  const [viewMode, setViewMode] = useState<string>("traffic")
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null)
-  const [selectedLink, setSelectedLink] = useState<Link | null>(null)
-  const [hoveredNode, setHoveredNode] = useState<Node | null>(null)
-  const [hoveredLink, setHoveredLink] = useState<Link | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [animationFrame, setAnimationFrame] = useState<number | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [loading, setLoading] = useState(true);
+  const [graphData, setGraphData] = useState<GraphData | null>(null);
+  const [viewMode, setViewMode] = useState<string>("traffic"); // traffic, protocols, errors
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [selectedLink, setSelectedLink] = useState<Link | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<Node | null>(null);
+  const [hoveredLink, setHoveredLink] = useState<Link | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // State untuk interaksi mouse (dragging, etc.) tetap sama
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggedNode, setDraggedNode] = useState<Node | null>(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
-  // Mouse position and interaction state
-  const [isDragging, setIsDragging] = useState(false)
-  const [draggedNode, setDraggedNode] = useState<Node | null>(null)
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+  const transformApiDataToGraphData = (connections: ApiConnection[]): GraphData => {
+    const nodesMap = new Map<string, Node>();
+    const links: Link[] = [];
+    const ipPacketCount: Record<string, number> = {};
+    const ipByteCount: Record<string, number> = {}; // Untuk menghitung total byte per IP
+    const ipConnectionCount: Record<string, number> = {};
+    const ipErrorStatus: Record<string, boolean> = {};
 
-  useEffect(() => {
-    // Generate mock network data
-    const generateMockNetworkData = () => {
-      const nodes: Node[] = []
-      const links: Link[] = []
 
-      // Generate some host nodes
-      const hostIPs = ["192.168.1.105", "192.168.1.106", "192.168.1.107", "192.168.1.1", "10.0.0.2", "172.16.0.5"]
+    connections.forEach(conn => {
+      // Hitung total paket dan byte per koneksi (jika API tidak menyediakannya)
+      // Untuk saat ini, kita gunakan conn.packets.length sebagai jumlah paket
+      // Untuk bytes, kita perlu data byte per paket atau total byte per koneksi dari API
+      // Jika tidak ada, kita bisa set default atau menghitungnya jika ada data paket individual
+      const connectionPackets = conn.packets.length;
+      const connectionBytes = connectionPackets * 150; // Asumsi rata-rata ukuran paket jika tidak ada data byte
 
-      // Generate some server nodes
-      const serverIPs = ["203.0.113.42", "8.8.8.8", "8.8.4.4", "104.18.22.46", "172.217.169.78"]
-
-      // Add host nodes
-      hostIPs.forEach((ip, index) => {
-        nodes.push({
-          id: ip,
-          label: ip,
-          type: "host",
-          connections: 0,
-          packets: Math.floor(Math.random() * 1000) + 100,
-          bytes: Math.floor(Math.random() * 1000000) + 10000,
-          x: 200 + Math.random() * 300,
-          y: 200 + Math.random() * 300,
-          radius: 20,
-          color: "hsl(210, 70%, 60%)",
-          hasErrors: Math.random() > 0.7,
-        })
-      })
-
-      // Add server nodes
-      serverIPs.forEach((ip, index) => {
-        nodes.push({
-          id: ip,
-          label: ip,
-          type: "server",
-          connections: 0,
-          packets: Math.floor(Math.random() * 5000) + 1000,
-          bytes: Math.floor(Math.random() * 10000000) + 1000000,
-          x: 600 + Math.random() * 300,
-          y: 200 + Math.random() * 300,
-          radius: 25,
-          color: "hsl(160, 70%, 50%)",
-          hasErrors: Math.random() > 0.8,
-        })
-      })
-
-      // Add router node
-      nodes.push({
-        id: "192.168.1.1",
-        label: "192.168.1.1 (Router)",
-        type: "router",
-        connections: 0,
-        packets: Math.floor(Math.random() * 10000) + 5000,
-        bytes: Math.floor(Math.random() * 50000000) + 10000000,
-        x: 400,
-        y: 300,
-        radius: 30,
-        color: "hsl(350, 70%, 50%)",
-        hasErrors: false,
-      })
-
-      // Generate links between nodes
-      const protocols = ["TCP", "UDP", "HTTP", "HTTPS", "DNS"]
-      const errorTypes = [
-        "TCP Reset",
-        "TCP Reset from Client",
-        "Failed Handshake",
-        "Connection Timeout",
-        "Duplicate ACK",
-      ]
-
-      // Connect hosts to router
-      hostIPs.forEach((hostIP) => {
-        if (hostIP !== "192.168.1.1") {
-          // Don't connect router to itself
-          links.push({
-            source: hostIP,
-            target: "192.168.1.1",
-            value: Math.floor(Math.random() * 10) + 1,
-            packets: Math.floor(Math.random() * 1000) + 100,
-            bytes: Math.floor(Math.random() * 1000000) + 10000,
-            protocol: protocols[Math.floor(Math.random() * protocols.length)],
-            hasErrors: Math.random() > 0.8,
-            errorTypes: Math.random() > 0.8 ? [errorTypes[Math.floor(Math.random() * errorTypes.length)]] : [],
-          })
+      // Tambahkan node jika belum ada
+      [conn.sourceIp, conn.destIp].forEach(ip => {
+        if (!nodesMap.has(ip)) {
+          nodesMap.set(ip, {
+            id: ip,
+            label: ip,
+            type: "unknown", // Tipe bisa ditentukan lebih lanjut
+            connections: 0,
+            packets: 0,
+            bytes: 0,
+            x: Math.random() * (canvasRef.current?.width || 800) * 0.8 + (canvasRef.current?.width || 800) * 0.1,
+            y: Math.random() * (canvasRef.current?.height || 500) * 0.8 + (canvasRef.current?.height || 500) * 0.1,
+            radius: 15, // Radius awal
+            color: `hsl(${Math.random() * 360}, 70%, 60%)`,
+            hasErrors: false,
+          });
         }
-      })
+        // Agregasi data untuk node
+        const node = nodesMap.get(ip)!;
+        ipPacketCount[ip] = (ipPacketCount[ip] || 0) + connectionPackets;
+        ipByteCount[ip] = (ipByteCount[ip] || 0) + connectionBytes; // Asumsi
+        ipConnectionCount[ip] = (ipConnectionCount[ip] || 0) + 1;
+        if (conn.hasErrors) {
+            ipErrorStatus[ip] = true;
+        }
+      });
 
-      // Connect router to servers
-      serverIPs.forEach((serverIP) => {
-        links.push({
-          source: "192.168.1.1",
-          target: serverIP,
-          value: Math.floor(Math.random() * 10) + 1,
-          packets: Math.floor(Math.random() * 1000) + 100,
-          bytes: Math.floor(Math.random() * 1000000) + 10000,
-          protocol: protocols[Math.floor(Math.random() * protocols.length)],
-          hasErrors: Math.random() > 0.8,
-          errorTypes: Math.random() > 0.8 ? [errorTypes[Math.floor(Math.random() * errorTypes.length)]] : [],
-        })
-      })
+      // Tambahkan link
+      links.push({
+        source: conn.sourceIp,
+        target: conn.destIp,
+        value: connectionPackets, // Bobot link berdasarkan jumlah paket
+        packets: connectionPackets,
+        bytes: connectionBytes, // Asumsi
+        protocol: conn.protocol,
+        hasErrors: conn.hasErrors,
+        errorTypes: conn.errorTypes,
+        sourcePort: conn.sourcePort,
+        destPort: conn.destPort,
+      });
+    });
 
-      // Add some direct connections between hosts and servers
-      for (let i = 0; i < 3; i++) {
-        const hostIP = hostIPs[Math.floor(Math.random() * hostIPs.length)]
-        const serverIP = serverIPs[Math.floor(Math.random() * serverIPs.length)]
-        links.push({
-          source: hostIP,
-          target: serverIP,
-          value: Math.floor(Math.random() * 10) + 1,
-          packets: Math.floor(Math.random() * 1000) + 100,
-          bytes: Math.floor(Math.random() * 1000000) + 10000,
-          protocol: protocols[Math.floor(Math.random() * protocols.length)],
-          hasErrors: Math.random() > 0.7,
-          errorTypes: Math.random() > 0.7 ? [errorTypes[Math.floor(Math.random() * errorTypes.length)]] : [],
-        })
+    // Finalisasi data node
+    nodesMap.forEach(node => {
+      node.packets = ipPacketCount[node.id] || 0;
+      node.bytes = ipByteCount[node.id] || 0;
+      node.connections = ipConnectionCount[node.id] || 0;
+      node.hasErrors = ipErrorStatus[node.id] || false;
+      // Sesuaikan radius berdasarkan jumlah koneksi atau paket
+      node.radius = 10 + Math.min(Math.sqrt(node.packets / 10 + node.connections * 2), 20);
+      // Tentukan tipe node (contoh sederhana)
+      if (node.id.startsWith("192.168.") || node.id.startsWith("10.") || node.id.startsWith("172.16.")) {
+        node.type = "host";
+        node.color = "hsl(210, 70%, 60%)";
+      } else if (node.connections === 1 && node.packets > 1000) { // Heuristik sederhana untuk server
+        node.type = "server";
+        node.color = "hsl(160, 70%, 50%)";
+      } else {
+        node.type = "unknown";
       }
+    });
 
-      // Update node connections count
-      links.forEach((link) => {
-        const sourceNode = nodes.find((node) => node.id === link.source)
-        const targetNode = nodes.find((node) => node.id === link.target)
-        if (sourceNode) sourceNode.connections++
-        if (targetNode) targetNode.connections++
-      })
+    return { nodes: Array.from(nodesMap.values()), links };
+  };
 
-      return { nodes, links }
-    }
-
-    const fetchNetworkData = async () => {
-      try {
-        setLoading(true)
-        // In a real application, you would fetch the data from an API
-        // For demo purposes, we'll use mock data
-        await new Promise((resolve) => setTimeout(resolve, 2000))
-        const mockData = generateMockNetworkData()
-        setGraphData(mockData)
-      } catch (err) {
-        console.error("Error fetching network data:", err)
-        setError("Failed to load network graph data")
-      } finally {
-        setLoading(false)
+  const fetchNetworkData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setGraphData(null); // Bersihkan data lama
+    console.log(`[NetworkGraph] Fetching data for analysisId: ${analysisId}`);
+    try {
+      // Panggil API /api/get-packet-data/[id]
+      const response = await fetch(`/api/get-packet-data/${analysisId}`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to fetch packet data: ${response.statusText}`);
       }
-    }
+      const apiResult = await response.json();
 
-    fetchNetworkData()
-
-    return () => {
-      if (animationFrame !== null) {
-        cancelAnimationFrame(animationFrame)
+      if (apiResult.success && apiResult.connections) {
+        console.log(`[NetworkGraph] Received ${apiResult.connections.length} connections from API.`);
+        if (apiResult.connections.length > 0) {
+            const transformedData = transformApiDataToGraphData(apiResult.connections);
+            setGraphData(transformedData);
+        } else {
+            setGraphData({ nodes: [], links: [] }); // Set data kosong jika tidak ada koneksi
+            console.log("[NetworkGraph] No connections data to visualize.");
+        }
+      } else {
+        throw new Error(apiResult.error || "Invalid data structure received from API.");
       }
+    } catch (err) {
+      console.error("[NetworkGraph] Error fetching or transforming network data:", err);
+      setError(err instanceof Error ? err.message : "Failed to load network graph data.");
+    } finally {
+      setLoading(false);
     }
-  }, [analysisId])
+  }, [analysisId]); // Hapus transformApiDataToGraphData dari dependencies karena ia didefinisikan di scope yang sama
 
   useEffect(() => {
-    if (!loading && graphData && canvasRef.current) {
-      drawNetworkGraph()
+    if (analysisId) {
+        fetchNetworkData();
     }
-  }, [loading, graphData, viewMode, selectedNode, selectedLink, hoveredNode, hoveredLink])
+  }, [analysisId, fetchNetworkData]);
 
-  const drawNetworkGraph = () => {
-    if (!canvasRef.current || !graphData) return
+  // Fungsi drawNetworkGraph, handleCanvasMouseMove, handleCanvasMouseDown, handleCanvasMouseUp, handleCanvasMouseLeave
+  // tetap sama seperti yang sudah Anda miliki di components/network-graph.tsx.
+  // Pastikan di drawNetworkGraph, Anda menggunakan graphData.nodes dan graphData.links
+  const drawNetworkGraph = useCallback(() => {
+    if (!canvasRef.current || !graphData) return;
 
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-    // Set canvas dimensions
-    canvas.width = canvas.offsetWidth
-    canvas.height = canvas.offsetHeight
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    // Draw connections
+    // Draw connections (links)
     graphData.links.forEach((link) => {
-      const sourceNode = graphData.nodes.find((node) => node.id === link.source)
-      const targetNode = graphData.nodes.find((node) => node.id === link.target)
+      const sourceNode = graphData.nodes.find((node) => node.id === link.source);
+      const targetNode = graphData.nodes.find((node) => node.id === link.target);
 
       if (sourceNode && targetNode) {
-        ctx.beginPath()
-        ctx.moveTo(sourceNode.x, sourceNode.y)
-        ctx.lineTo(targetNode.x, targetNode.y)
+        ctx.beginPath();
+        ctx.moveTo(sourceNode.x, sourceNode.y);
+        ctx.lineTo(targetNode.x, targetNode.y);
 
-        // Determine line style based on view mode and selection
-        let lineWidth = 1
-        let strokeStyle = "rgba(150, 150, 150, 0.5)"
+        let lineWidth = 1;
+        let strokeStyle = "rgba(150, 150, 150, 0.3)"; // Lebih transparan defaultnya
 
         if (viewMode === "errors" && link.hasErrors) {
-          strokeStyle = "rgba(220, 50, 50, 0.7)"
-          lineWidth = 2
+          strokeStyle = "rgba(220, 50, 50, 0.7)";
+          lineWidth = 2.5;
         } else if (viewMode === "traffic") {
-          // Line width based on traffic volume
-          lineWidth = Math.max(1, Math.min(8, link.value))
-          strokeStyle = "rgba(100, 100, 200, 0.5)"
+          lineWidth = Math.max(1, Math.min(10, Math.log(link.bytes / 1000 + 1) * 0.8 )); // Skala logaritmik untuk bytes
+          strokeStyle = `rgba(100, 100, 200, ${Math.min(0.2 + link.packets / 500, 0.7)})`; // Opacity berdasarkan jumlah paket
         } else if (viewMode === "protocols") {
-          // Color based on protocol
-          switch (link.protocol) {
-            case "TCP":
-              strokeStyle = "rgba(0, 150, 255, 0.6)"
-              break
-            case "UDP":
-              strokeStyle = "rgba(0, 200, 100, 0.6)"
-              break
-            case "HTTP":
-              strokeStyle = "rgba(180, 0, 180, 0.6)"
-              break
-            case "HTTPS":
-              strokeStyle = "rgba(100, 0, 200, 0.6)"
-              break
-            case "DNS":
-              strokeStyle = "rgba(255, 180, 0, 0.6)"
-              break
-            default:
-              strokeStyle = "rgba(150, 150, 150, 0.5)"
+          // ... (logika warna protokol tetap sama)
+           switch (link.protocol?.toUpperCase()) {
+            case "TCP": strokeStyle = "rgba(0, 150, 255, 0.6)"; break;
+            case "UDP": strokeStyle = "rgba(0, 200, 100, 0.6)"; break;
+            case "HTTP": strokeStyle = "rgba(180, 0, 180, 0.6)"; break;
+            case "HTTPS": case "TLS": strokeStyle = "rgba(100, 0, 200, 0.6)"; break;
+            case "DNS": strokeStyle = "rgba(255, 180, 0, 0.6)"; break;
+            case "ICMP": strokeStyle = "rgba(255, 100, 0, 0.6)"; break;
+            default: strokeStyle = "rgba(180, 180, 180, 0.4)";
           }
         }
 
-        // Highlight selected or hovered link
-        if (
-          selectedLink &&
-          ((selectedLink.source === link.source && selectedLink.target === link.target) ||
-            (selectedLink.source === link.target && selectedLink.target === link.source))
-        ) {
-          lineWidth += 2
-          strokeStyle = "rgba(50, 150, 255, 0.9)"
-        } else if (
-          hoveredLink &&
-          ((hoveredLink.source === link.source && hoveredLink.target === link.target) ||
-            (hoveredLink.source === link.target && hoveredLink.target === link.source))
-        ) {
-          lineWidth += 1
-          strokeStyle = "rgba(100, 180, 255, 0.8)"
+        if (selectedLink && selectedLink.source === link.source && selectedLink.target === link.target) {
+          lineWidth += 2; strokeStyle = "rgba(50, 150, 255, 1)";
+        } else if (hoveredLink && hoveredLink.source === link.source && hoveredLink.target === link.target) {
+          lineWidth += 1; strokeStyle = "rgba(100, 180, 255, 0.9)";
         }
-
-        // Highlight links connected to selected node
         if (selectedNode && (link.source === selectedNode.id || link.target === selectedNode.id)) {
-          lineWidth += 1
-          strokeStyle = "rgba(100, 180, 255, 0.8)"
+          lineWidth = Math.max(lineWidth, 2); strokeStyle = hoveredLink && hoveredLink.source === link.source && hoveredLink.target === link.target ? "rgba(50, 150, 255, 1)" : "rgba(100, 180, 255, 0.8)";
         }
 
-        ctx.lineWidth = lineWidth
-        ctx.strokeStyle = strokeStyle
-        ctx.stroke()
 
-        // Draw arrow to indicate direction
-        const angle = Math.atan2(targetNode.y - sourceNode.y, targetNode.x - sourceNode.x)
-        const arrowLength = 10
-        const arrowWidth = 5
-        const arrowX = targetNode.x - targetNode.radius * Math.cos(angle)
-        const arrowY = targetNode.y - targetNode.radius * Math.sin(angle)
+        ctx.lineWidth = lineWidth;
+        ctx.strokeStyle = strokeStyle;
+        ctx.stroke();
 
-        ctx.beginPath()
-        ctx.moveTo(arrowX, arrowY)
-        ctx.lineTo(
-          arrowX - arrowLength * Math.cos(angle) + arrowWidth * Math.sin(angle),
-          arrowY - arrowLength * Math.sin(angle) - arrowWidth * Math.cos(angle),
-        )
-        ctx.lineTo(
-          arrowX - arrowLength * Math.cos(angle) - arrowWidth * Math.sin(angle),
-          arrowY - arrowLength * Math.sin(angle) + arrowWidth * Math.cos(angle),
-        )
-        ctx.closePath()
-        ctx.fillStyle = strokeStyle
-        ctx.fill()
+        // Opsi: Gambar panah di tengah link jika diperlukan
+        // const midX = (sourceNode.x + targetNode.x) / 2;
+        // const midY = (sourceNode.y + targetNode.y) / 2;
+        // const angle = Math.atan2(targetNode.y - sourceNode.y, targetNode.x - sourceNode.x);
+        // ctx.save();
+        // ctx.translate(midX, midY);
+        // ctx.rotate(angle);
+        // ctx.beginPath();
+        // ctx.moveTo(0, 0);
+        // ctx.lineTo(-8, -4);
+        // ctx.lineTo(-8, 4);
+        // ctx.closePath();
+        // ctx.fillStyle = strokeStyle;
+        // ctx.fill();
+        // ctx.restore();
       }
-    })
+    });
 
     // Draw nodes
     graphData.nodes.forEach((node) => {
-      // Determine node style based on view mode and selection
-      let radius = node.radius
-      const fillStyle = node.color
-      let strokeStyle = "rgba(50, 50, 50, 0.8)"
-      let lineWidth = 1
+      let radius = node.radius;
+      let fillStyle = node.color;
+      let nodeStrokeStyle = "rgba(50, 50, 50, 0.8)";
+      let nodeLineWidth = 1;
 
       if (viewMode === "errors" && node.hasErrors) {
-        strokeStyle = "rgba(220, 50, 50, 0.9)"
-        lineWidth = 3
+        nodeStrokeStyle = "rgba(220, 50, 50, 0.9)";
+        nodeLineWidth = 3;
       }
 
-      // Highlight selected or hovered node
       if (selectedNode && selectedNode.id === node.id) {
-        radius += 5
-        strokeStyle = "rgba(50, 150, 255, 0.9)"
-        lineWidth = 3
+        radius += 4; nodeStrokeStyle = "rgba(50, 150, 255, 1)"; nodeLineWidth = 3;
       } else if (hoveredNode && hoveredNode.id === node.id) {
-        radius += 2
-        strokeStyle = "rgba(100, 180, 255, 0.8)"
-        lineWidth = 2
+        radius += 2; nodeStrokeStyle = "rgba(100, 180, 255, 0.9)"; nodeLineWidth = 2;
       }
 
-      // Draw circle
-      ctx.beginPath()
-      ctx.arc(node.x, node.y, radius, 0, Math.PI * 2)
-      ctx.fillStyle = fillStyle
-      ctx.fill()
-      ctx.lineWidth = lineWidth
-      ctx.strokeStyle = strokeStyle
-      ctx.stroke()
-
-      // Draw node type icon
-      ctx.fillStyle = "rgba(255, 255, 255, 0.9)"
-      ctx.font = "bold 14px sans-serif"
-      ctx.textAlign = "center"
-      ctx.textBaseline = "middle"
-
-      if (node.type === "router") {
-        ctx.fillText("R", node.x, node.y)
-      } else if (node.type === "server") {
-        ctx.fillText("S", node.x, node.y)
-      } else {
-        ctx.fillText("H", node.x, node.y)
-      }
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+      ctx.lineWidth = nodeLineWidth;
+      ctx.strokeStyle = nodeStrokeStyle;
+      ctx.stroke();
 
       // Draw label
-      ctx.font = "12px sans-serif"
-      ctx.fillStyle = "#333"
-      ctx.textAlign = "center"
-      ctx.fillText(node.label, node.x, node.y + radius + 15)
+      ctx.font = "11px sans-serif";
+      ctx.fillStyle = "#333"; // Ganti warna teks agar kontras dengan tema gelap/terang
+      ctx.textAlign = "center";
+      ctx.fillText(node.label, node.x, node.y + radius + 12);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphData, viewMode, selectedNode, selectedLink, hoveredNode, hoveredLink]); // Tambahkan dependensi
 
-      // Draw error indicator if needed
-      if (node.hasErrors) {
-        ctx.beginPath()
-        ctx.arc(node.x + radius - 5, node.y - radius + 5, 5, 0, Math.PI * 2)
-        ctx.fillStyle = "rgba(220, 50, 50, 0.9)"
-        ctx.fill()
-        ctx.lineWidth = 1
-        ctx.strokeStyle = "white"
-        ctx.stroke()
-      }
-    })
-  }
-
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current || !graphData) return
-
-    const canvas = canvasRef.current
-    const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-    setMousePos({ x, y })
-
-    // Check if mouse is over a node
-    let foundNode = null
-    for (const node of graphData.nodes) {
-      const distance = Math.sqrt(Math.pow(node.x - x, 2) + Math.pow(node.y - y, 2))
-      if (distance <= node.radius) {
-        foundNode = node
-        break
-      }
+  useEffect(() => {
+    if (graphData && canvasRef.current) {
+      const animationId = requestAnimationFrame(drawNetworkGraph);
+      return () => cancelAnimationFrame(animationId);
     }
+  }, [graphData, drawNetworkGraph]);
 
-    // Check if mouse is over a link
-    let foundLink = null
-    if (!foundNode) {
-      for (const link of graphData.links) {
-        const sourceNode = graphData.nodes.find((node) => node.id === link.source)
-        const targetNode = graphData.nodes.find((node) => node.id === link.target)
-        if (sourceNode && targetNode) {
-          // Calculate distance from point to line
-          const lineLength = Math.sqrt(
-            Math.pow(targetNode.x - sourceNode.x, 2) + Math.pow(targetNode.y - sourceNode.y, 2),
-          )
-          const distance =
-            Math.abs(
-              (targetNode.y - sourceNode.y) * x -
-                (targetNode.x - sourceNode.x) * y +
-                targetNode.x * sourceNode.y -
-                targetNode.y * sourceNode.x,
-            ) / lineLength
 
-          // Check if point is close to line and between endpoints
-          if (distance < 10) {
-            // Check if point is between endpoints
-            const dotProduct =
-              ((x - sourceNode.x) * (targetNode.x - sourceNode.x) +
-                (y - sourceNode.y) * (targetNode.y - sourceNode.y)) /
-              Math.pow(lineLength, 2)
-            if (dotProduct >= 0 && dotProduct <= 1) {
-              foundLink = link
-              break
+  // Mouse handlers (handleCanvasMouseMove, handleCanvasMouseDown, handleCanvasMouseUp, handleCanvasMouseLeave)
+  // bisa disalin dari versi mock data Anda, pastikan mereka menggunakan `graphData` yang baru.
+    const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        if (!canvasRef.current || !graphData) return;
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        setMousePos({ x, y });
+
+        let foundNode: Node | null = null;
+        for (const node of graphData.nodes) {
+        const distance = Math.sqrt(Math.pow(node.x - x, 2) + Math.pow(node.y - y, 2));
+        if (distance <= node.radius + 5) { // Tambah sedikit toleransi klik
+            foundNode = node;
+            break;
+        }
+        }
+        setHoveredNode(foundNode);
+
+        let foundLink: Link | null = null;
+        if (!foundNode) {
+            for (const link of graphData.links) {
+                const sourceNode = graphData.nodes.find(n => n.id === link.source);
+                const targetNode = graphData.nodes.find(n => n.id === link.target);
+                if (sourceNode && targetNode) {
+                    const dx = targetNode.x - sourceNode.x;
+                    const dy = targetNode.y - sourceNode.y;
+                    const lenSq = dx * dx + dy * dy;
+                    const dot = ((x - sourceNode.x) * dx + (y - sourceNode.y) * dy) / lenSq;
+                    const closestX = sourceNode.x + dot * dx;
+                    const closestY = sourceNode.y + dot * dy;
+                    const onSegment = dot >= 0 && dot <= 1;
+                    if (onSegment) {
+                        const distToLine = Math.sqrt(Math.pow(x - closestX, 2) + Math.pow(y - closestY, 2));
+                        if (distToLine < 8) { // Toleransi klik untuk link
+                            foundLink = link;
+                            break;
+                        }
+                    }
+                }
             }
+        }
+        setHoveredLink(foundLink);
+
+
+        if (isDragging && draggedNode && graphData) {
+        const updatedNodes = graphData.nodes.map(node =>
+            node.id === draggedNode.id ? { ...node, x, y } : node
+        );
+        setGraphData({ ...graphData, nodes: updatedNodes });
+        }
+        canvas.style.cursor = foundNode || isDragging ? 'grab' : foundLink ? 'pointer' : 'default';
+    };
+
+    const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        if (hoveredNode) {
+        setIsDragging(true);
+        setDraggedNode(hoveredNode);
+        canvasRef.current!.style.cursor = 'grabbing';
+        }
+    };
+
+    const handleCanvasMouseUp = () => {
+        if (isDragging) {
+        setIsDragging(false);
+        setDraggedNode(null);
+        canvasRef.current!.style.cursor = hoveredNode ? 'grab' : 'default';
+        } else {
+          // Handle click jika tidak dragging
+          if (hoveredNode) {
+            setSelectedNode(hoveredNode === selectedNode ? null : hoveredNode);
+            setSelectedLink(null);
+          } else if (hoveredLink) {
+            setSelectedLink(hoveredLink === selectedLink ? null : hoveredLink);
+            setSelectedNode(null);
+          } else if (!hoveredNode && !hoveredLink) { // Klik di area kosong
+             setSelectedNode(null);
+             setSelectedLink(null);
           }
         }
-      }
-    }
-
-    // Update hovered node and link
-    setHoveredNode(foundNode)
-    setHoveredLink(foundLink)
-
-    // Handle dragging
-    if (isDragging && draggedNode) {
-      // Update node position
-      const updatedNodes = graphData.nodes.map((node) => {
-        if (node.id === draggedNode.id) {
-          return { ...node, x, y }
+    };
+    const handleCanvasMouseLeave = () => {
+        setHoveredNode(null);
+        setHoveredLink(null);
+        if (isDragging) { // Jika keluar canvas saat dragging, batalkan drag
+            setIsDragging(false);
+            setDraggedNode(null);
         }
-        return node
-      })
-      setGraphData({ ...graphData, nodes: updatedNodes })
-    }
+        if(canvasRef.current) canvasRef.current.style.cursor = 'default';
+    };
 
-    // Update cursor style
-    if (foundNode || isDragging) {
-      canvas.style.cursor = "pointer"
-    } else if (foundLink) {
-      canvas.style.cursor = "crosshair"
-    } else {
-      canvas.style.cursor = "default"
-    }
-  }
-
-  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (hoveredNode) {
-      setIsDragging(true)
-      setDraggedNode(hoveredNode)
-    }
-  }
-
-  const handleCanvasMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isDragging && draggedNode) {
-      // End dragging
-      setIsDragging(false)
-      setDraggedNode(null)
-    } else {
-      // Handle click
-      if (hoveredNode) {
-        setSelectedNode(hoveredNode === selectedNode ? null : hoveredNode)
-        setSelectedLink(null)
-      } else if (hoveredLink) {
-        setSelectedLink(hoveredLink === selectedLink ? null : hoveredLink)
-        setSelectedNode(null)
-      } else {
-        setSelectedNode(null)
-        setSelectedLink(null)
-      }
-    }
-  }
-
-  const handleCanvasMouseLeave = () => {
-    setHoveredNode(null)
-    setHoveredLink(null)
-    setIsDragging(false)
-    setDraggedNode(null)
-  }
 
   if (error) {
     return (
-      <Card>
+      <Card className="col-span-1 md:col-span-2 lg:col-span-3">
         <CardHeader>
-          <CardTitle className="text-red-500">Error</CardTitle>
+          <CardTitle className="text-destructive flex items-center">
+            <AlertTriangle className="mr-2 h-5 w-5" />
+            Error Loading Network Graph
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <p>{error}</p>
-          <Button onClick={() => window.location.reload()} className="mt-4">
-            Try Again
-          </Button>
+          <Button onClick={() => fetchNetworkData()} className="mt-4">Try Again</Button>
         </CardContent>
       </Card>
-    )
+    );
   }
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-2">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
             <div>
               <CardTitle>Network Communication Graph</CardTitle>
-              <CardDescription>Visual representation of network traffic patterns</CardDescription>
+              <CardDescription>Visual representation of network connections.</CardDescription>
             </div>
-            <Select value={viewMode} onValueChange={setViewMode}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="View mode" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="traffic">Traffic Volume</SelectItem>
-                <SelectItem value="protocols">Protocol Types</SelectItem>
-                <SelectItem value="errors">Error Detection</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-2">
+                <Select value={viewMode} onValueChange={setViewMode}>
+                    <SelectTrigger className="w-[180px] h-9 text-xs">
+                        <SelectValue placeholder="View mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="traffic">Traffic Volume</SelectItem>
+                        <SelectItem value="protocols">Protocol Types</SelectItem>
+                        <SelectItem value="errors">Error Highlighting</SelectItem>
+                    </SelectContent>
+                </Select>
+                <Button onClick={() => fetchNetworkData()} size="sm" variant="outline" disabled={loading}>
+                    <Loader2 className={`mr-2 h-4 w-4 ${loading ? 'animate-spin': 'hidden'}`} />
+                    Refresh Graph
+                </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
-            <div className="flex justify-center items-center h-[500px]">
+          {loading && !graphData ? ( // Tampilkan loading hanya jika graphData belum ada
+            <div className="flex justify-center items-center h-[400px] md:h-[500px]">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              <p className="ml-2 text-muted-foreground">Loading graph data...</p>
+            </div>
+          ) : (!graphData || graphData.nodes.length === 0) && !loading ? (
+            <div className="flex justify-center items-center h-[400px] md:h-[500px] text-muted-foreground">
+                <p>No network connection data to display for this PCAP.</p>
             </div>
           ) : (
-            <div className="h-[500px] w-full relative">
+            <div className="h-[400px] md:h-[500px] w-full relative border rounded-md overflow-hidden bg-slate-50 dark:bg-slate-800/30">
               <canvas
                 ref={canvasRef}
                 className="w-full h-full"
@@ -561,146 +479,39 @@ export function NetworkGraph({ analysisId }: NetworkGraphProps) {
                 onMouseUp={handleCanvasMouseUp}
                 onMouseLeave={handleCanvasMouseLeave}
               />
-              {(selectedNode || selectedLink) && (
-                <div className="absolute bottom-4 right-4 bg-white p-3 rounded-md shadow-md border max-w-xs">
-                  {selectedNode && (
+              {/* Tooltip atau info panel untuk node/link yang di-hover atau dipilih */}
+              {(selectedNode || selectedLink || hoveredNode || hoveredLink) && (
+                <div className="absolute bottom-2 right-2 bg-background/80 backdrop-blur-sm p-3 rounded-md shadow-lg border max-w-xs text-xs z-10">
+                  { (selectedNode || hoveredNode) && (selectedNode || hoveredNode)!.id &&
                     <div>
-                      <h4 className="font-medium">{selectedNode.label}</h4>
-                      <div className="text-sm mt-1">
-                        <div>Type: {selectedNode.type.charAt(0).toUpperCase() + selectedNode.type.slice(1)}</div>
-                        <div>Connections: {selectedNode.connections}</div>
-                        <div>Packets: {selectedNode.packets.toLocaleString()}</div>
-                        <div>Data: {(selectedNode.bytes / 1024).toFixed(2)} KB</div>
-                        {selectedNode.hasErrors && (
-                          <div className="text-red-500 flex items-center mt-1">
-                            <AlertTriangle className="h-4 w-4 mr-1" /> Has network errors
-                          </div>
-                        )}
-                      </div>
+                      <h4 className="font-semibold text-sm">{(selectedNode || hoveredNode)!.label}</h4>
+                      <p>Type: {(selectedNode || hoveredNode)!.type}</p>
+                      <p>Connections: {(selectedNode || hoveredNode)!.connections}</p>
+                      <p>Packets: {(selectedNode || hoveredNode)!.packets.toLocaleString()}</p>
+                      <p>Bytes: {((selectedNode || hoveredNode)!.bytes / 1024).toFixed(2)} KB</p>
+                      {(selectedNode || hoveredNode)!.hasErrors && <p className="text-red-500 flex items-center"><AlertTriangle size={14} className="mr-1"/> Contains errors</p>}
                     </div>
-                  )}
-                  {selectedLink && (
-                    <div>
-                      <h4 className="font-medium">
-                        {selectedLink.source} → {selectedLink.target}
+                  }
+                  { (selectedLink || hoveredLink) && (selectedLink || hoveredLink)!.source &&
+                    <div className={ (selectedNode || hoveredNode) ? "mt-2 pt-2 border-t" : ""}>
+                      <h4 className="font-semibold text-sm">
+                        {(selectedLink || hoveredLink)!.source.split(':')[0]} 
+                        { (selectedLink || hoveredLink)!.sourcePort ? `:${(selectedLink || hoveredLink)!.sourcePort}`:''} → {(selectedLink || hoveredLink)!.target.split(':')[0]}
+                        { (selectedLink || hoveredLink)!.destPort ? `:${(selectedLink || hoveredLink)!.destPort}`:''}
                       </h4>
-                      <div className="text-sm mt-1">
-                        <div>Protocol: {selectedLink.protocol}</div>
-                        <div>Packets: {selectedLink.packets.toLocaleString()}</div>
-                        <div>Data: {(selectedLink.bytes / 1024).toFixed(2)} KB</div>
-                        {selectedLink.hasErrors && (
-                          <div>
-                            <div className="text-red-500 flex items-center mt-1">
-                              <AlertTriangle className="h-4 w-4 mr-1" /> Network errors detected
-                            </div>
-                            {selectedLink.errorTypes.map((error, index) => (
-                              <div key={index} className="text-red-500 text-xs ml-5 mt-1">
-                                • {error}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <p>Protocol: {(selectedLink || hoveredLink)!.protocol}</p>
+                      <p>Packets: {(selectedLink || hoveredLink)!.packets.toLocaleString()}</p>
+                      <p>Bytes: {((selectedLink || hoveredLink)!.bytes / 1024).toFixed(2)} KB</p>
+                      {(selectedLink || hoveredLink)!.hasErrors && <p className="text-red-500 flex items-center"><AlertTriangle size={14} className="mr-1"/> Contains errors</p>}
                     </div>
-                  )}
+                  }
                 </div>
               )}
             </div>
           )}
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>Network Statistics</CardTitle>
-          <CardDescription>Summary of network traffic and anomalies</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="summary">
-            <TabsList>
-              <TabsTrigger value="summary">Summary</TabsTrigger>
-              <TabsTrigger value="protocols">Protocols</TabsTrigger>
-              <TabsTrigger value="errors">Errors</TabsTrigger>
-            </TabsList>
-            <TabsContent value="summary" className="pt-4">
-              {loading ? (
-                <div className="flex justify-center items-center h-40">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-muted/50 p-4 rounded-lg">
-                    <div className="text-sm text-muted-foreground">Total Hosts</div>
-                    <div className="text-2xl font-bold mt-1">
-                      {graphData?.nodes.filter((n) => n.type === "host").length || 0}
-                    </div>
-                  </div>
-                  <div className="bg-muted/50 p-4 rounded-lg">
-                    <div className="text-sm text-muted-foreground">Total Connections</div>
-                    <div className="text-2xl font-bold mt-1">{graphData?.links.length || 0}</div>
-                  </div>
-                  <div className="bg-muted/50 p-4 rounded-lg">
-                    <div className="text-sm text-muted-foreground">Error Rate</div>
-                    <div className="text-2xl font-bold mt-1">
-                      {graphData
-                        ? Math.round((graphData.links.filter((l) => l.hasErrors).length / graphData.links.length) * 100)
-                        : 0}
-                      %
-                    </div>
-                  </div>
-                </div>
-              )}
-            </TabsContent>
-            <TabsContent value="protocols" className="pt-4">
-              {loading ? (
-                <div className="flex justify-center items-center h-40">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                  {graphData &&
-                    ["TCP", "UDP", "HTTP", "HTTPS", "DNS"].map((protocol) => {
-                      const count = graphData.links.filter((l) => l.protocol === protocol).length
-                      const percentage = Math.round((count / graphData.links.length) * 100)
-                      return (
-                        <div key={protocol} className="bg-muted/50 p-4 rounded-lg">
-                          <div className="flex justify-between items-center">
-                            <div className="text-sm text-muted-foreground">{protocol}</div>
-                            <Badge variant="outline">{percentage}%</Badge>
-                          </div>
-                          <div className="text-xl font-bold mt-1">{count}</div>
-                        </div>
-                      )
-                    })}
-                </div>
-              )}
-            </TabsContent>
-            <TabsContent value="errors" className="pt-4">
-              {loading ? (
-                <div className="flex justify-center items-center h-40">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {graphData &&
-                    ["TCP Reset", "Failed Handshake", "Connection Timeout", "Duplicate ACK"].map((errorType) => {
-                      const count = graphData.links.filter((l) => l.errorTypes.includes(errorType)).length
-                      return (
-                        <div key={errorType} className="bg-red-50 p-4 rounded-lg border border-red-100">
-                          <div className="flex items-center">
-                            <AlertTriangle className="h-4 w-4 text-red-500 mr-2" />
-                            <div className="text-sm font-medium text-red-700">{errorType}</div>
-                          </div>
-                          <div className="text-xl font-bold mt-1 text-red-800">{count}</div>
-                        </div>
-                      )
-                    })}
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+      {/* Informasi tambahan atau legenda bisa ditambahkan di sini jika perlu */}
     </div>
-  )
+  );
 }
