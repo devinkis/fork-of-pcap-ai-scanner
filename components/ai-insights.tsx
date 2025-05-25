@@ -29,9 +29,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Badge } from "@/components/ui/badge"; // Pastikan Badge diimpor
+import { Badge } from "@/components/ui/badge";
+// --- MODIFIKASI: Impor IOCList ---
+import { IOCList } from "@/components/ioc-list";
+// --- SELESAI MODIFIKASI ---
 
-// --- DEFINISI FUNGSI getStatusVariant LOKAL ---
 const getStatusVariant = (status?: string): "default" | "secondary" | "destructive" | "outline" => {
   switch (status?.toLowerCase()) {
     case 'completed':
@@ -42,10 +44,9 @@ const getStatusVariant = (status?: string): "default" | "secondary" | "destructi
     case 'error':
       return 'destructive';
     default:
-      return 'outline'; // Untuk status UNKNOWN atau tidak terdefinisi
+      return 'outline';
   }
 };
-// --- SELESAI DEFINISI LOKAL ---
 
 interface ProtocolDistribution {
   name: string;
@@ -86,6 +87,15 @@ interface DetailedPacketInfo {
   summary: string;
   payload?: string;
 }
+
+// --- MODIFIKASI: Pastikan tipe IOC di AiInsightsData cocok dengan IOCList ---
+interface IOC {
+  type: "ip" | "domain" | "url" | "hash";
+  value: string;
+  context: string;
+  confidence: number;
+}
+// --- SELESAI MODIFIKASI ---
 
 interface AiInsightsData {
   summary?: string;
@@ -129,7 +139,9 @@ interface AiInsightsData {
   status?: 'Pending' | 'Processing' | 'Completed' | 'Error' | 'UNKNOWN';
   threatLevel?: string;
   findings?: Array<{ id?: string; title?: string; description?: string; severity?: string; confidence?: number; recommendation?: string; category?: string; affectedHosts?: string[]; relatedPackets?: number[]; }>;
-  iocs?: Array<{ type?: string; value?: string; context?: string; confidence?: number; }>;
+  // --- MODIFIKASI: Gunakan tipe IOC yang sudah didefinisikan ---
+  iocs?: IOC[];
+  // --- SELESAI MODIFIKASI ---
   statistics?: any;
   timeline?: Array<{ time?: string; event?: string; severity?: string; }>;
 }
@@ -452,7 +464,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   }
   
   return (
-    <TooltipProvider> 
+    <TooltipProvider>
       <div className="space-y-8 p-4 md:p-6">
         {error && data && data.status !== 'Error' && (
              <Alert variant="destructive" className="mb-6">
@@ -560,6 +572,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   </Card>
                 </TabsContent>
 
+                {/* --- MODIFIKASI: Integrasi IOCList di Tab Threats --- */}
                 <TabsContent value="threats">
                     <Card>
                         <CardHeader>
@@ -600,29 +613,21 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                                     </Accordion>
                                 </div>
                             )}
-                             {data.iocs && data.iocs.length > 0 && (
-                                <div>
-                                    <h3 className="font-semibold mt-6 mb-2 text-base">Indicators of Compromise (IOCs):</h3>
-                                    <ScrollArea className="h-auto max-h-[300px] border rounded-md">
-                                        <Table className="text-xs">
-                                            <TableHeader><TableRow><TableHead>Type</TableHead><TableHead>Value</TableHead><TableHead>Context</TableHead><TableHead>Confidence</TableHead></TableRow></TableHeader>
-                                            <TableBody>
-                                            {data.iocs.map((ioc, index) => (
-                                                <TableRow key={index}>
-                                                <TableCell>{ioc.type || 'N/A'}</TableCell>
-                                                <TableCell className="font-mono truncate max-w-[150px]" title={ioc.value}>{ioc.value || 'N/A'}</TableCell>
-                                                <TableCell className="truncate max-w-[200px]" title={ioc.context}>{ioc.context || 'N/A'}</TableCell>
-                                                <TableCell>{ioc.confidence !== undefined ? `${ioc.confidence}%` : 'N/A'}</TableCell>
-                                                </TableRow>
-                                            ))}
-                                            </TableBody>
-                                        </Table>
-                                    </ScrollArea>
+                            {data.iocs && data.iocs.length > 0 ? (
+                                <div className="mt-6">
+                                    <IOCList iocs={data.iocs} />
+                                </div>
+                            ) : (
+                                <div className="mt-6">
+                                    <h3 className="font-semibold mb-2 text-base">Indicators of Compromise (IOCs):</h3>
+                                    <p className="text-sm text-muted-foreground">No specific IOCs were identified by the AI in this analysis.</p>
                                 </div>
                             )}
                         </CardContent>
                     </Card>
                 </TabsContent>
+                {/* --- SELESAI MODIFIKASI --- */}
+
 
                 <TabsContent value="recommendations">
                    <Card>
