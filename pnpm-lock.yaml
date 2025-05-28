@@ -149,6 +149,9 @@ importers:
       next-themes:
         specifier: ^0.4.4
         version: 0.4.4(react-dom@19.0.0(react@19.0.0))(react@19.0.0)
+      pcap-ng-parser:
+        specifier: latest
+        version: 1.0.0
       pcap-parser:
         specifier: latest
         version: 0.2.1
@@ -252,8 +255,8 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
 
-  '@babel/runtime@7.27.1':
-    resolution: {integrity: sha512-1x3D2xEk2fRo3PAhwQwu5UubzgiVWSXTBfWpVd2Mx2AzRqJuDJCsgaDVZ7HB5iGzDW1Hl1sWN2mFyKjmR9uAog==}
+  '@babel/runtime@7.27.3':
+    resolution: {integrity: sha512-7EYtGezsdiDMyY80+65EzwiGmcJqpmcZCojSXaRgdrBaGtWTgDZKq69cPIVped6MkIM78cTQ2GOiEYjwOlG4xw==}
     engines: {node: '>=6.9.0'}
 
   '@emnapi/runtime@1.4.3':
@@ -1483,8 +1486,8 @@ packages:
   ecdsa-sig-formatter@1.0.11:
     resolution: {integrity: sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==}
 
-  electron-to-chromium@1.5.157:
-    resolution: {integrity: sha512-/0ybgsQd1muo8QlnuTpKwtl0oX5YMlUGbm8xyqgDU00motRkKFFbUJySAQBWcY79rVqNLWIWa87BGVGClwAB2w==}
+  electron-to-chromium@1.5.159:
+    resolution: {integrity: sha512-CEvHptWAMV5p6GJ0Lq8aheyvVbfzVrv5mmidu1D3pidoVNkB3tTBsTMVtPJ+rzRK5oV229mCLz9Zj/hNvU8GBA==}
 
   embla-carousel-react@8.5.1:
     resolution: {integrity: sha512-z9Y0K84BJvhChXgqn2CFYbfEi6AwEr+FFVVKm/MqbTQ2zIzO1VQri6w67LcfpVF0AjbhwVMywDZqY4alYkjW5w==}
@@ -1535,6 +1538,9 @@ packages:
   escalade@3.2.0:
     resolution: {integrity: sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA==}
     engines: {node: '>=6'}
+
+  ether-frame@0.2.0:
+    resolution: {integrity: sha512-DlG5fLL+Q1O+dQ2Cq8t8mq5moot45EI/+xUH1yIow/o3p5v9NeasPS8CYZrcDhOsnO7WhnkBGwiPInA2brp0pQ==}
 
   eventemitter3@4.0.7:
     resolution: {integrity: sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==}
@@ -1764,6 +1770,9 @@ packages:
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0-rc
 
+  mac-address@0.3.0:
+    resolution: {integrity: sha512-MeWDulIS3dvdVRsbJCiTFZKFNCoEFL+n3GD9/Em1fTssGK/OH+/j5NUJUOLnijNp5gWk2UWjnlJnkHRMpNFfsw==}
+
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
@@ -1881,6 +1890,9 @@ packages:
   path-scurry@1.11.1:
     resolution: {integrity: sha512-Xa4Nw17FS9ApQFJ9umLiJS4orGjm7ZzwUrwamcGQuHSzDyth9boKDaycYdDcZDuqYATXw4HFXgaqWTctW/v1HA==}
     engines: {node: '>=16 || 14 >=14.18'}
+
+  pcap-ng-parser@1.0.0:
+    resolution: {integrity: sha512-ySJiSEHAaFZXkwTVj2vSTFQSfwAqg9+uiCdasz2UbIaJRH9xq/MRJwzvWWZxH0ByxJhNB8wDRdrSWrKgfI7Dwg==}
 
   pcap-parser@0.2.1:
     resolution: {integrity: sha512-+1t1GiMpEHI+MFub/mpCmfpyU4oVOyn4h71Zp5GqC/2uv0yteM6MghazKBQMkNXgmmsCPT1JUMfqsF03cYjnyw==}
@@ -2391,7 +2403,7 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@babel/runtime@7.27.1': {}
+  '@babel/runtime@7.27.3': {}
 
   '@emnapi/runtime@1.4.3':
     dependencies:
@@ -3407,7 +3419,7 @@ snapshots:
   browserslist@4.24.5:
     dependencies:
       caniuse-lite: 1.0.30001718
-      electron-to-chromium: 1.5.157
+      electron-to-chromium: 1.5.159
       node-releases: 2.0.19
       update-browserslist-db: 1.1.3(browserslist@4.24.5)
 
@@ -3594,7 +3606,7 @@ snapshots:
 
   dom-helpers@5.2.1:
     dependencies:
-      '@babel/runtime': 7.27.1
+      '@babel/runtime': 7.27.3
       csstype: 3.1.3
 
   dom-serializer@2.0.0:
@@ -3627,7 +3639,7 @@ snapshots:
     dependencies:
       safe-buffer: 5.2.1
 
-  electron-to-chromium@1.5.157: {}
+  electron-to-chromium@1.5.159: {}
 
   embla-carousel-react@8.5.1(react@19.0.0):
     dependencies:
@@ -3670,6 +3682,10 @@ snapshots:
       hasown: 2.0.2
 
   escalade@3.2.0: {}
+
+  ether-frame@0.2.0:
+    dependencies:
+      mac-address: 0.3.0
 
   eventemitter3@4.0.7: {}
 
@@ -3895,6 +3911,8 @@ snapshots:
     dependencies:
       react: 19.0.0
 
+  mac-address@0.3.0: {}
+
   math-intrinsics@1.1.0: {}
 
   merge2@1.4.1: {}
@@ -3998,6 +4016,10 @@ snapshots:
     dependencies:
       lru-cache: 10.4.3
       minipass: 7.1.2
+
+  pcap-ng-parser@1.0.0:
+    dependencies:
+      ether-frame: 0.2.0
 
   pcap-parser@0.2.1: {}
 
@@ -4164,7 +4186,7 @@ snapshots:
 
   react-transition-group@4.4.5(react-dom@19.0.0(react@19.0.0))(react@19.0.0):
     dependencies:
-      '@babel/runtime': 7.27.1
+      '@babel/runtime': 7.27.3
       dom-helpers: 5.2.1
       loose-envify: 1.4.0
       prop-types: 15.8.1
