@@ -52,7 +52,7 @@ async function parsePcapWithOriginalParser(fileUrl: string, fileName: string, an
 
   const parsedPackets: any[] = [];
   let packetCounter = 0;
-  const MAX_PACKETS_FOR_UI_DISPLAY = 500; 
+  const MAX_PACKETS_FOR_UI_DISPLAY = 10000; 
   let promiseResolved = false;
   const connectionMap = new Map<string, any>();
 
@@ -154,7 +154,7 @@ async function parsePcapNgWithNewParser(fileUrl: string, fileName: string, analy
 
   const parsedPackets: any[] = [];
   let packetCounter = 0;
-  const MAX_PACKETS_PCAPNG = 500; // Dinaikkan kembali ke 500 jika performa memungkinkan
+  const MAX_PACKETS_PCAPNG = 10000; // Dinaikkan kembali ke 500 jika performa memungkinkan
   let promiseResolved = false;
   const connectionMap = new Map<string, any>();
   let currentInterfaceInfo: any = {};
