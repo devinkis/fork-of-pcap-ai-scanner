@@ -1,47 +1,58 @@
 // app/api/get-packet-data/[id]/route.ts
 import { type NextRequest, NextResponse } from "next/server";
 import db from "@/lib/neon-db"; ///route.ts]
-const PcapParser = require('pcap-parser');
-const PCAPNGParser = require('pcap-ng-parser');
-import { Readable } from 'stream';
+const PcapParser = require('pcap-parser'); 
+const PCAPNGParser = require('pcap-ng-parser'); 
+import { Readable } from 'stream'; 
 
 // --- Fungsi Helper Timestamp untuk PCAPNGParser ---
-function pcapNgTimestampToDate(timestampHigh: number, timestampLow: number, tsresol: number = 6): Date {
-  const divisorForMs = BigInt(10 ** (Math.max(0, tsresol - 3))); // Ensure divisor is at least 1 (for nanoseconds if tsresol=0 for example)
+function pcapNgTimestampToDate(timestampHigh: number, timestampLow: number, tsresol: number = 6): Date { ///route.ts]
+  // tsresol: log10 of resolution. Default 6 means microseconds.
+  const divisorForMs = BigInt(10 ** (tsresol - 3));
   const timestampBigInt = (BigInt(timestampHigh) << 32n) | BigInt(timestampLow);
   try {
-    if (tsresol < 3) { // e.g. seconds, deciseconds, centiseconds
-        const multiplier = BigInt(10 ** (3 - tsresol));
-        const milliseconds = timestampBigInt * multiplier;
-        return new Date(Number(milliseconds));
-    } else { // e.g. milliseconds, microseconds, nanoseconds etc.
-        const milliseconds = timestampBigInt / divisorForMs;
-        return new Date(Number(milliseconds));
+    if (divisorForMs <= 0n) { // tsresol lebih kecil dari 3 (e.g. nanoseconds)
+        // Jika resolusi lebih tinggi dari milidetik, pembagian bisa menghasilkan 0 jika tidak hati-hati
+        // Untuk penyederhanaan, jika resolusinya nanoseconds (9), kita bagi dengan 1,000,000 untuk jadi ms
+        if (tsresol === 9) {
+             const nanoseconds = timestampBigInt;
+             const milliseconds = nanoseconds / 1000000n;
+             return new Date(Number(milliseconds));
+        }
+        // Untuk resolusi lain yang sangat tinggi, mungkin perlu penyesuaian lebih lanjut
+        // atau konversi ke unit standar dulu (misal, microsecond)
+        console.warn(`[PCAPNG_TIMESTAMP_CONV] High resolution tsresol ${tsresol} may lead to precision loss or require BigInt math throughout.`);
+        // Defaulting to microsecond conversion if logic is not fully robust for all tsresol
+        const microseconds = timestampBigInt / BigInt(10 ** (tsresol - 6));
+        return new Date(Number(microseconds / 1000n));
     }
+    const milliseconds = timestampBigInt / divisorForMs;
+    return new Date(Number(milliseconds));
   } catch (e) {
-    console.warn(`[PCAPNG_TIMESTAMP_CONV_ERROR] ts: High=${timestampHigh}, Low=${timestampLow}, tsresol=${tsresol}. Error: ${e}`);
+    console.warn(`[PCAPNG_TIMESTAMP_CONV_ERROR] Failed to convert timestamp: High=${timestampHigh}, Low=${timestampLow}, tsresol=${tsresol}. Error: ${e}`);
     return new Date(); 
   }
 }
 
 // --- Fungsi Parsing menggunakan PcapParser (Parser Lama untuk .pcap) ---
 async function parsePcapWithOriginalParser(fileUrl: string, fileName: string, analysisId: string): Promise<{ packets: any[], connections: any[] }> {
-  console.log(`[ORIGINAL_PCAP_PARSER] Parsing .pcap: ${fileName} (ID: ${analysisId})`);
+  console.log(`[REVISIT_PCAP_PARSER] Parsing .pcap: ${fileName} (ID: ${analysisId})`);
   const functionStartTime = Date.now();
 
   const pcapResponse = await fetch(fileUrl);
   if (!pcapResponse.ok || !pcapResponse.body) {
-    throw new Error(`[ORIGINAL_PCAP_PARSER] Failed to download .pcap file: ${pcapResponse.statusText}`);
+    throw new Error(`[REVISIT_PCAP_PARSER] Failed to download .pcap file: ${pcapResponse.statusText}`);
   }
   const arrayBuffer = await pcapResponse.arrayBuffer();
   const pcapBuffer = Buffer.from(arrayBuffer);
+  console.log(`[REVISIT_PCAP_PARSER] Downloaded ${fileName} in ${((Date.now() - functionStartTime) / 1000).toFixed(2)}s`);
 
   const readablePcapStream = Readable.from(pcapBuffer);
   const parser = PcapParser.parse(readablePcapStream);
 
   const parsedPackets: any[] = [];
   let packetCounter = 0;
-  const MAX_PACKETS_FOR_UI_DISPLAY = 500; 
+  const MAX_PACKETS_FOR_UI_DISPLAY = 10000; 
   let promiseResolved = false;
   const connectionMap = new Map<string, any>();
 
@@ -49,7 +60,7 @@ async function parsePcapWithOriginalParser(fileUrl: string, fileName: string, an
     const cleanupAndResolve = (data: { packets: any[], connections: any[] }) => {
       if (!promiseResolved) {
         promiseResolved = true;
-        console.log(`[ORIGINAL_PCAP_PARSER] Resolving for ${analysisId}. Packets: ${packetCounter}. Total time: ${((Date.now() - functionStartTime) / 1000).toFixed(2)}s`);
+        console.log(`[REVISIT_PCAP_PARSER] Resolving for ${analysisId}. Packets: ${packetCounter}. Total time: ${((Date.now() - functionStartTime) / 1000).toFixed(2)}s`);
         if (parser) parser.removeAllListeners();
         if (readablePcapStream && !readablePcapStream.destroyed) {
           readablePcapStream.unpipe(parser); 
@@ -61,7 +72,7 @@ async function parsePcapWithOriginalParser(fileUrl: string, fileName: string, an
     const cleanupAndReject = (error: Error) => {
       if (!promiseResolved) {
         promiseResolved = true;
-        console.error(`[ORIGINAL_PCAP_PARSER] Rejecting for ${analysisId}. Error: ${error.message}`);
+        console.error(`[REVISIT_PCAP_PARSER] Rejecting for ${analysisId}. Error: ${error.message}`);
         if (parser) parser.removeAllListeners();
         if (readablePcapStream && !readablePcapStream.destroyed) {
           readablePcapStream.unpipe(parser);
@@ -107,7 +118,7 @@ async function parsePcapWithOriginalParser(fileUrl: string, fileName: string, an
                 } else { info = "IPv4 (Short Packet)"; isError = true; errorType = "ShortIPPacket_pcap"; }
             } else if (etherType === 0x86DD) { protocol = "IPv6"; info = "IPv6 Packet"; detailedInfo["IPv6"] = { Payload: "IPv6 detail TBD" }; }
             else if (etherType === 0x0806) { protocol = "ARP"; info = "ARP Packet"; detailedInfo["ARP"] = { Payload: "ARP detail TBD" }; }
-            else { protocol = `UnknownEtherType_0x${etherType.toString(16)}`; info = `Unknown EtherType 0x${etherType.toString(16)}`; }
+            else { protocol = `EtherType_0x${etherType.toString(16)}`; info = `Unknown EtherType 0x${etherType.toString(16)}`; }
         } else { info = "Non-Ethernet or too short"; protocol = `LinkType_${linkLayerType}`; }
         const maxHexDumpBytes = 64; const dataBufferForDump = packet.data || Buffer.alloc(0); const dataToDump = dataBufferForDump.slice(0, Math.min(dataBufferForDump.length, maxHexDumpBytes)); for (let i = 0; i < dataToDump.length; i += 16) { const slice = dataToDump.slice(i, i + 16); const hex = slice.toString('hex').match(/.{1,2}/g)?.join(' ') || ''; const ascii = slice.toString('ascii').replace(/[^\x20-\x7E]/g, '.'); hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`); }
       } catch(e: any) { info = `Error decoding: ${e.message}`; isError = true; errorType = "DecodingError_PcapParser"; }
@@ -128,7 +139,7 @@ async function parsePcapWithOriginalParser(fileUrl: string, fileName: string, an
 // --- Fungsi Parsing PCAPNG dengan Penyesuaian Log ---
 async function parsePcapNgWithNewParser(fileUrl: string, fileName: string, analysisId: string): Promise<{ packets: any[], connections: any[] }> {
   const functionStartTime = Date.now();
-  console.log(`[PCAPNG_PARSER_V6_FINAL] START Parsing ID: ${analysisId}, File: ${fileName}`); ///route.ts]
+  console.log(`[PCAPNG_PARSER_V6_FINAL] START Parsing ID: ${analysisId}, File: ${fileName}`);
   
   let pcapBuffer: Buffer;
   try {
@@ -143,7 +154,7 @@ async function parsePcapNgWithNewParser(fileUrl: string, fileName: string, analy
 
   const parsedPackets: any[] = [];
   let packetCounter = 0;
-  const MAX_PACKETS_PCAPNG = 500; // Kembalikan ke 500 atau nilai yang sesuai
+  const MAX_PACKETS_PCAPNG = 10000; // Dinaikkan kembali ke 500 jika performa memungkinkan
   let promiseResolved = false;
   const connectionMap = new Map<string, any>();
   let currentInterfaceInfo: any = {};
@@ -178,13 +189,13 @@ async function parsePcapNgWithNewParser(fileUrl: string, fileName: string, analy
 
     parser.on('block', (block: any) => {
         blockCounter++;
-        // console.log(`[PCAPNG_PARSER_V6_FINAL] Block ${blockCounter} type: ${block.type}`); 
+        // console.log(`[PCAPNG_PARSER_V6_FINAL] Block ${blockCounter} type: ${block.type}`); // Optional: bisa di-uncomment jika perlu debug blok
         if (block.type === 'InterfaceDescriptionBlock') {
             currentInterfaceInfo[block.interfaceId] = { 
                 name: block.options?.if_name, 
                 linkLayerType: block.linkLayerType, 
                 snapLength: block.snapLength,
-                tsresol: block.options?.if_tsresol !== undefined ? Number(block.options.if_tsresol) : 6 // Default ke microseconds
+                tsresol: block.options?.if_tsresol || 6 // Default ke microseconds jika tidak ada
             };
             console.log(`[PCAPNG_PARSER_V6_FINAL] Interface Block ID ${block.interfaceId} LinkType ${block.linkLayerType}, TSResol: ${currentInterfaceInfo[block.interfaceId].tsresol}`);
         }
@@ -194,8 +205,11 @@ async function parsePcapNgWithNewParser(fileUrl: string, fileName: string, analy
       if (promiseResolved) return;
       dataEventCounter++;
       
-      // Tidak lagi warning jika type undefined, karena itu cara kerja library ini untuk event 'data'
-      // console.log(`[PCAPNG_PARSER_V6_FINAL] Data event ${dataEventCounter} received. Packet Type: ${parsedPcapNgPacket.type}`); 
+      // Kita ASUMSIKAN event 'data' dari pcap-ng-parser SELALU berisi data paket yang valid
+      // dan memiliki properti seperti interfaceId, timestampHigh/Low, dan data (Buffer).
+      // Properti 'type' pada objek parsedPcapNgPacket mungkin tidak selalu 'EnhancedPacketBlock' atau bisa undefined.
+      // Jadi, kita tidak akan lagi memeriksa parsedPcapNgPacket.type di sini,
+      // tapi langsung periksa keberadaan parsedPcapNgPacket.data (buffer).
 
       if (!parsedPcapNgPacket.data) {
         console.warn(`[PCAPNG_PARSER_V6_FINAL] 'data' event ${dataEventCounter} received but parsedPcapNgPacket.data is missing for ${analysisId}. Skipping. Packet obj:`, JSON.stringify(parsedPcapNgPacket).substring(0,200));
@@ -211,7 +225,7 @@ async function parsePcapNgWithNewParser(fileUrl: string, fileName: string, analy
       let timestampDate;
       if (parsedPcapNgPacket.timestampHigh !== undefined && parsedPcapNgPacket.timestampLow !== undefined) {
         timestampDate = pcapNgTimestampToDate(parsedPcapNgPacket.timestampHigh, parsedPcapNgPacket.timestampLow, ifaceInfo.tsresol);
-      } else if (parsedPcapNgPacket.timestampSeconds !== undefined) { 
+      } else if (parsedPcapNgPacket.timestampSeconds !== undefined) { // Fallback untuk format mirip PCAP lama jika ada
         timestampDate = new Date(parsedPcapNgPacket.timestampSeconds * 1000 + (parsedPcapNgPacket.timestampMicroseconds || 0) / 1000);
       } else {
         timestampDate = new Date(); 
@@ -259,7 +273,6 @@ async function parsePcapNgWithNewParser(fileUrl: string, fileName: string, analy
           const connIdFwd = `${sourceIp}:${sourcePort}-${destIp}:${destPort}-${protocol}`; const connIdRev = `${destIp}:${destPort}-${sourceIp}:${sourcePort}-${protocol}`; const connId = connectionMap.has(connIdFwd) ? connIdFwd : connectionMap.has(connIdRev) ? connIdRev : connIdFwd; if (!connectionMap.has(connId)) { connectionMap.set(connId, { id: connId, sourceIp, sourcePort, destIp, destPort, protocol, state: protocol === "TCP" ? (flags.includes("SYN") ? "SYN_SENT" : "ACTIVE") : "ACTIVE", packets: [packetCounter], startTime: finalPacketData.timestamp, hasErrors: isError, errorTypes: isError && errorType ? [errorType] : [] }); } else { const conn = connectionMap.get(connId); conn.packets.push(packetCounter); conn.endTime = finalPacketData.timestamp; if (isError && !conn.hasErrors) conn.hasErrors = true; if (isError && errorType && !conn.errorTypes.includes(errorType)) conn.errorTypes.push(errorType); if (protocol === "TCP") { if (flags.includes("RST")) conn.state = "RESET"; else if (flags.includes("FIN") && flags.includes("ACK")) conn.state = "FIN_ACK"; else if (flags.includes("FIN") && conn.state !== "RESET") conn.state = "FIN_WAIT"; else if (flags.includes("SYN") && flags.includes("ACK") && conn.state === "SYN_SENT") conn.state = "ESTABLISHED"; else if (flags.includes("SYN") && conn.state !== "ESTABLISHED" && conn.state !== "RESET") conn.state = "SYN_SENT"; } }
       }
       
-      // Hapus console.timeEnd di sini karena bisa menyebabkan error jika loop dihentikan
       if (packetCounter % 50 === 0) console.log(`[PCAPNG_PARSER_V6_FINAL] Processed packet ${packetCounter} (data event ${dataEventCounter}) for ${analysisId}.`);
 
       if (packetCounter >= MAX_PACKETS_PCAPNG) {
@@ -292,7 +305,7 @@ async function parsePcapNgWithNewParser(fileUrl: string, fileName: string, analy
 
 
 // --- Fungsi GET Utama dengan Logika Pemilihan Parser ---
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) { ///route.ts]
+export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   const VERCEL_TIMEOUT_SAFETY_MARGIN = 5000; 
   const functionTimeout = (process.env.VERCEL_FUNCTION_MAX_DURATION ? parseInt(process.env.VERCEL_FUNCTION_MAX_DURATION) * 1000 : 10000) - VERCEL_TIMEOUT_SAFETY_MARGIN; 
   const overallStartTime = Date.now();
