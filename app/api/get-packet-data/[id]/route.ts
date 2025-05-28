@@ -1,94 +1,100 @@
 // app/api/get-packet-data/[id]/route.ts
 import { type NextRequest, NextResponse } from "next/server";
 import db from "@/lib/neon-db";
-// const PcapParser = require('pcap-parser'); // Hapus impor lama
-const PCAPNGParser = require('pcap-ng-parser'); // Impor library baru
+const PCAPNGParser = require('pcap-ng-parser');
 import { Readable } from 'stream';
 
-// Fungsi helper untuk konversi timestamp pcap-ng (jika diperlukan)
+// Fungsi helper untuk konversi timestamp pcap-ng
 function pcapNgTimestampToDate(timestampHigh: number, timestampLow: number): Date {
-  // PCAPNG timestamps are typically 64-bit, split into high and low 32-bit parts.
-  // The unit is usually microseconds from epoch.
-  // JavaScript's Date uses milliseconds.
-  // This is a simplified approach; a more robust solution might involve BigInt
-  // if timestamps are very large, but for common cases this should work.
-  const seconds = timestampHigh * (2**32 / 1e6) + timestampLow / 1e6;
-  return new Date(seconds * 1000);
+  const seconds = timestampHigh * (2**32 / 1e6) + timestampLow / 1e6; // Mengasumsikan unit adalah microsecond
+  return new Date(seconds * 1000); // Konversi ke milisecond untuk Date
 }
 
-
 async function parsePcapFileWithPcapNgParser(fileUrl: string, fileName: string): Promise<{ packets: any[], connections: any[] }> {
-  console.log(`[API_GET_PACKET_DATA] Parsing PCAPNG/PCAP with pcap-ng-parser: ${fileName} from ${fileUrl}`);
+  const startTime = Date.now();
+  console.log(`[API_GET_PACKET_DATA_V2_PCAPNG] START Parsing: ${fileName} from ${fileUrl} at ${new Date(startTime).toISOString()}`);
   
   const pcapResponse = await fetch(fileUrl);
   if (!pcapResponse.ok || !pcapResponse.body) {
+    console.error(`[API_GET_PACKET_DATA_V2_PCAPNG] Failed to download PCAP: ${pcapResponse.status} ${pcapResponse.statusText}`);
     throw new Error(`Failed to download PCAP file: ${pcapResponse.statusText}`);
   }
   const arrayBuffer = await pcapResponse.arrayBuffer();
   const pcapBuffer = Buffer.from(arrayBuffer);
+  const downloadTime = Date.now();
+  console.log(`[API_GET_PACKET_DATA_V2_PCAPNG] Downloaded ${fileName} (${(pcapBuffer.length / (1024*1024)).toFixed(2)} MB) in ${((downloadTime - startTime) / 1000).toFixed(2)}s`);
 
   const readablePcapStream = Readable.from(pcapBuffer);
-  const parser = new PCAPNGParser(); // Gunakan constructor baru
+  const parser = new PCAPNGParser();
 
   const parsedPackets: any[] = [];
   let packetCounter = 0;
-  const MAX_PACKETS_FOR_UI_DISPLAY = 500; // Batas yang sama
+  // **MITIGASI 1: Kurangi jumlah paket untuk UI secara drastis**
+  const MAX_PACKETS_FOR_UI_DISPLAY = 100; // Coba dengan 100 dulu, atau bahkan 50
   let promiseResolved = false;
 
   const connectionMap = new Map<string, any>();
-  let currentInterfaceInfo: any = null; // Untuk menyimpan info interface terakhir
+  let currentInterfaceInfo: any = null;
+  let firstPacketTime: number | null = null;
+  let lastPacketTime: number | null = null;
 
   return new Promise((resolve, reject) => {
-    const resolveOnce = (data: { packets: any[], connections: any[] }) => {
+    const cleanupAndResolve = (data: { packets: any[], connections: any[] }) => {
         if (!promiseResolved) {
           promiseResolved = true;
+          console.log(`[API_GET_PACKET_DATA_V2_PCAPNG] Cleanup: Removing listeners and destroying stream for ${fileName}`);
           if (parser && typeof parser.removeAllListeners === 'function') {
             parser.removeAllListeners();
           }
-          readablePcapStream.unpipe(parser); // Pastikan unpipe
-          readablePcapStream.destroy();
+          if (readablePcapStream && !readablePcapStream.destroyed) {
+            readablePcapStream.unpipe(parser); // Penting untuk diunpipe sebelum destroy
+            readablePcapStream.destroy();
+          }
           resolve(data);
         }
     };
-    const rejectOnce = (error: Error) => {
+    const cleanupAndReject = (error: Error) => {
         if (!promiseResolved) {
           promiseResolved = true;
+          console.error(`[API_GET_PACKET_DATA_V2_PCAPNG] Cleanup due to error for ${fileName}: ${error.message}`);
           if (parser && typeof parser.removeAllListeners === 'function') {
             parser.removeAllListeners();
           }
-          readablePcapStream.unpipe(parser); // Pastikan unpipe
-          readablePcapStream.destroy();
+           if (readablePcapStream && !readablePcapStream.destroyed) {
+            readablePcapStream.unpipe(parser);
+            readablePcapStream.destroy();
+          }
           reject(error);
         }
     };
 
-    readablePcapStream.pipe(parser); // Pipe stream ke parser
+    readablePcapStream.pipe(parser);
 
     parser.on('interface', (interfaceDescription: any) => {
-      console.log('[API_GET_PACKET_DATA] Interface Description Block:', interfaceDescription);
-      currentInterfaceInfo = interfaceDescription; // Simpan info interface
-      // Anda bisa menggunakan interfaceDescription.linkLayerType jika perlu
+      // console.log('[API_GET_PACKET_DATA_V2_PCAPNG] Interface Description Block:', interfaceDescription);
+      currentInterfaceInfo = interfaceDescription;
     });
     
     parser.on('data', (parsedPcapNgPacket: any) => {
-      // 'parsedPcapNgPacket' adalah blok paket dari pcap-ng-parser
-      // Struktur umumnya: { type: string (e.g., 'EnhancedPacketBlock'), interfaceId: number, timestampHigh: number, timestampLow: number, data: Buffer (payload mentah paket) }
-      // Beberapa blok mungkin tidak memiliki 'data', seperti 'InterfaceStatisticsBlock'
-      if (promiseResolved || parsedPcapNgPacket.type !== 'EnhancedPacketBlock' || !parsedPcapNgPacket.data) {
-        if (parsedPcapNgPacket.type !== 'EnhancedPacketBlock') {
-            // console.log(`[API_GET_PACKET_DATA] Skipping non-packet block: ${parsedPcapNgPacket.type}`);
-        }
+      if (promiseResolved) return;
+
+      const packetProcessStartTime = Date.now();
+      if (!firstPacketTime) firstPacketTime = packetProcessStartTime;
+
+      if (parsedPcapNgPacket.type !== 'EnhancedPacketBlock' || !parsedPcapNgPacket.data) {
         return;
       }
 
       packetCounter++;
       
-      const packetDataBuffer = parsedPcapNgPacket.data; // Ini adalah buffer data paket mentah
-      // Timestamp dari pcap-ng biasanya dalam microseconds, perlu konversi jika high/low terpisah
-      const timestamp = pcapNgTimestampToDate(parsedPcapNgPacket.timestampHigh, parsedPcapNgPacket.timestampLow).toISOString();
-      const capturedLength = parsedPcapNgPacket.capturedLength || packetDataBuffer.length; // Ambil dari blok jika ada
+      const packetDataBuffer = parsedPcapNgPacket.data;
+      const packetDate = pcapNgTimestampToDate(parsedPcapNgPacket.timestampHigh, parsedPcapNgPacket.timestampLow);
+      const timestamp = packetDate.toISOString();
+      const capturedLength = parsedPcapNgPacket.capturedLength || packetDataBuffer.length;
       const originalLength = parsedPcapNgPacket.originalPacketLength || packetDataBuffer.length;
 
+      // ... (sisa logika decoding paket tetap sama seperti sebelumnya) ...
+      // Ini bagian yang intensif CPU
       let sourceIp = "N/A";
       let destIp = "N/A";
       let sourcePort: number | undefined;
@@ -102,20 +108,15 @@ async function parsePcapFileWithPcapNgParser(fileUrl: string, fileName: string):
       let ttl: number | undefined;
       let isError = false; 
       let errorType: string | undefined;
-      // Gunakan capturedLength dan originalLength dari parsedPcapNgPacket jika tersedia
       let detailedInfo: any = { "Frame Info": { Number: packetCounter, CapturedLength: capturedLength, OriginalLength: originalLength, Timestamp: timestamp, InterfaceID: parsedPcapNgPacket.interfaceId }};
       if (currentInterfaceInfo && currentInterfaceInfo.id === parsedPcapNgPacket.interfaceId) {
         detailedInfo["Frame Info"].InterfaceName = currentInterfaceInfo.name || `Interface ${currentInterfaceInfo.id}`;
-        detailedInfo["Frame Info"].LinkLayerType = currentInterfaceInfo.linkLayerType; // Penting untuk decoding!
+        detailedInfo["Frame Info"].LinkLayerType = currentInterfaceInfo.linkLayerType;
       }
       let hexDump : string[] = [];
-
-      // Link layer type, default ke Ethernet (1) jika tidak ada info interface
       const linkLayerType = (currentInterfaceInfo && currentInterfaceInfo.id === parsedPcapNgPacket.interfaceId) ? currentInterfaceInfo.linkLayerType : 1;
 
       try { 
-          // Asumsi Link Layer adalah Ethernet (type 1) jika tidak ada info lain
-          // Jika linkLayerType BUKAN Ethernet, logika decoding di bawah ini mungkin perlu disesuaikan atau dilewati
           if (linkLayerType === 1 && packetDataBuffer && packetDataBuffer.length >= 14) { 
               detailedInfo["Ethernet II"] = { 
                 DestinationMAC: packetDataBuffer.slice(0,6).toString('hex').match(/.{1,2}/g)?.join(':'),
@@ -123,116 +124,67 @@ async function parsePcapFileWithPcapNgParser(fileUrl: string, fileName: string):
                 EtherType: `0x${packetDataBuffer.readUInt16BE(12).toString(16)}`
               }; 
               const etherType = packetDataBuffer.readUInt16BE(12);
-
-              if (etherType === 0x0800) { // IPv4
+              if (etherType === 0x0800) { 
                   protocol = "IPv4"; 
                   if (packetDataBuffer.length >= 14 + 20) { 
                       const ipHeaderStart = 14;
                       const ipHeaderIHL = (packetDataBuffer[ipHeaderStart] & 0x0F);
                       const ipHeaderLength = ipHeaderIHL * 4;
-                      
                       if (packetDataBuffer.length >= ipHeaderStart + ipHeaderLength) {
                           const ipHeader = packetDataBuffer.slice(ipHeaderStart, ipHeaderStart + ipHeaderLength);
                           sourceIp = `${ipHeader[12]}.${ipHeader[13]}.${ipHeader[14]}.${ipHeader[15]}`;
                           destIp = `${ipHeader[16]}.${ipHeader[17]}.${ipHeader[18]}.${ipHeader[19]}`;
                           ttl = ipHeader[8];
                           const ipProtocolField = ipHeader[9];
-                          detailedInfo["IPv4"] = { 
-                              Version: 4, HeaderLength: ipHeaderLength, TTL: ttl, 
-                              Protocol: ipProtocolField, SourceAddress: sourceIp, DestinationAddress: destIp,
-                              TotalLength: ipHeader.readUInt16BE(2), Identification: `0x${ipHeader.readUInt16BE(4).toString(16)}`
-                          };
-                          
+                          detailedInfo["IPv4"] = { Version: 4, HeaderLength: ipHeaderLength, TTL: ttl, Protocol: ipProtocolField, SourceAddress: sourceIp, DestinationAddress: destIp, TotalLength: ipHeader.readUInt16BE(2), Identification: `0x${ipHeader.readUInt16BE(4).toString(16)}` };
                           info = `IPv4 ${sourceIp} -> ${destIp}`;
                           const transportHeaderStart = ipHeaderStart + ipHeaderLength;
                           let transportProtocolName = `IPProto_${ipProtocolField}`;
-
-                          if (ipProtocolField === 1) { // ICMP
-                              protocol = "ICMP";
-                              transportProtocolName = "ICMP";
-                              info += ` (ICMP)`;
+                          if (ipProtocolField === 1) { 
+                              protocol = "ICMP"; transportProtocolName = "ICMP"; info += ` (ICMP)`;
                               if (packetDataBuffer.length >= transportHeaderStart + 4) {
-                                  const icmpType = packetDataBuffer[transportHeaderStart];
-                                  const icmpCode = packetDataBuffer[transportHeaderStart + 1];
+                                  const icmpType = packetDataBuffer[transportHeaderStart]; const icmpCode = packetDataBuffer[transportHeaderStart + 1];
                                   detailedInfo["ICMP"] = { Type: icmpType, Code: icmpCode, Checksum: `0x${packetDataBuffer.readUInt16BE(transportHeaderStart + 2).toString(16)}` };
                                   info += ` Type ${icmpType} Code ${icmpCode}`;
                               }
-                          } else if (ipProtocolField === 6) { // TCP
-                              protocol = "TCP";
-                              transportProtocolName = "TCP";
+                          } else if (ipProtocolField === 6) { 
+                              protocol = "TCP"; transportProtocolName = "TCP";
                               if (packetDataBuffer.length >= transportHeaderStart + 20) { 
                                   const tcpHeaderBasic = packetDataBuffer.slice(transportHeaderStart, transportHeaderStart + 20);
-                                  sourcePort = tcpHeaderBasic.readUInt16BE(0);
-                                  destPort = tcpHeaderBasic.readUInt16BE(2);
-                                  tcpSeq = tcpHeaderBasic.readUInt32BE(4);
-                                  tcpAck = tcpHeaderBasic.readUInt32BE(8);
-                                  const dataOffsetByte = tcpHeaderBasic[12]; 
-                                  const tcpHeaderLength = ((dataOffsetByte & 0xF0) >> 4) * 4;
+                                  sourcePort = tcpHeaderBasic.readUInt16BE(0); destPort = tcpHeaderBasic.readUInt16BE(2);
+                                  tcpSeq = tcpHeaderBasic.readUInt32BE(4); tcpAck = tcpHeaderBasic.readUInt32BE(8);
+                                  const dataOffsetByte = tcpHeaderBasic[12]; const tcpHeaderLength = ((dataOffsetByte & 0xF0) >> 4) * 4;
                                   const flagsByte = tcpHeaderBasic[13];
-                                  
                                   flags = [];
-                                  if (flagsByte & 0x01) flags.push("FIN");
-                                  if (flagsByte & 0x02) flags.push("SYN");
-                                  if (flagsByte & 0x04) flags.push("RST");
-                                  if (flagsByte & 0x08) flags.push("PSH");
-                                  if (flagsByte & 0x10) flags.push("ACK");
-                                  if (flagsByte & 0x20) flags.push("URG");
-                                  
+                                  if (flagsByte & 0x01) flags.push("FIN"); if (flagsByte & 0x02) flags.push("SYN"); if (flagsByte & 0x04) flags.push("RST");
+                                  if (flagsByte & 0x08) flags.push("PSH"); if (flagsByte & 0x10) flags.push("ACK"); if (flagsByte & 0x20) flags.push("URG");
                                   windowSize = tcpHeaderBasic.readUInt16BE(14);
-                                  // Perbaiki perhitungan Len: capturedLength dikurangi awal header TCP
                                   const payloadLength = capturedLength - (transportHeaderStart + tcpHeaderLength);
                                   info = `${sourcePort} → ${destPort} [${flags.join(', ')}] Seq=${tcpSeq} Ack=${tcpAck} Win=${windowSize} Len=${payloadLength >= 0 ? payloadLength : 0}`;
-                                  detailedInfo["TCP"] = { 
-                                      SourcePort: sourcePort, DestinationPort: destPort, 
-                                      SequenceNumber: tcpSeq, AckNumber: tcpAck, HeaderLength: tcpHeaderLength,
-                                      Flags: flags.join(', '), WindowSize: windowSize,
-                                      Checksum: `0x${tcpHeaderBasic.readUInt16BE(16).toString(16)}`,
-                                      UrgentPointer: tcpHeaderBasic.readUInt16BE(18)
-                                  };
+                                  detailedInfo["TCP"] = { SourcePort: sourcePort, DestinationPort: destPort, SequenceNumber: tcpSeq, AckNumber: tcpAck, HeaderLength: tcpHeaderLength, Flags: flags.join(', '), WindowSize: windowSize, Checksum: `0x${tcpHeaderBasic.readUInt16BE(16).toString(16)}`, UrgentPointer: tcpHeaderBasic.readUInt16BE(18) };
                                   if (flags.includes("RST")) { isError = true; errorType = "TCP Reset"; }
                               } else { info = "TCP (Truncated Header)"; isError = true; errorType = "TruncatedTCP"; }
-                          } else if (ipProtocolField === 17) { // UDP
-                              protocol = "UDP";
-                              transportProtocolName = "UDP";
+                          } else if (ipProtocolField === 17) { 
+                              protocol = "UDP"; transportProtocolName = "UDP";
                                if (packetDataBuffer.length >= transportHeaderStart + 8) { 
                                   const udpHeader = packetDataBuffer.slice(transportHeaderStart, transportHeaderStart + 8);
-                                  sourcePort = udpHeader.readUInt16BE(0);
-                                  destPort = udpHeader.readUInt16BE(2);
-                                  const udpLength = udpHeader.readUInt16BE(4); // Ini adalah panjang header UDP + data UDP
-                                  info = `${sourcePort} → ${destPort} Len=${udpLength - 8}`; // Panjang data UDP
-                                  detailedInfo["UDP"] = { 
-                                      SourcePort: sourcePort, DestinationPort: destPort, 
-                                      Length: udpLength, Checksum: `0x${udpHeader.readUInt16BE(6).toString(16)}`
-                                  };
+                                  sourcePort = udpHeader.readUInt16BE(0); destPort = udpHeader.readUInt16BE(2);
+                                  const udpLength = udpHeader.readUInt16BE(4);
+                                  info = `${sourcePort} → ${destPort} Len=${udpLength - 8}`;
+                                  detailedInfo["UDP"] = { SourcePort: sourcePort, DestinationPort: destPort, Length: udpLength, Checksum: `0x${udpHeader.readUInt16BE(6).toString(16)}` };
                                } else { info = "UDP (Truncated Header)"; isError = true; errorType = "TruncatedUDP"; }
-                          } else {
-                              protocol = transportProtocolName;
-                              info = `IP Protocol ${ipProtocolField}`;
-                          }
+                          } else { protocol = transportProtocolName; info = `IP Protocol ${ipProtocolField}`; }
                       } else { info = "IPv4 (Truncated IP Header)"; isError = true; errorType = "TruncatedIP"; protocol = "IPv4"; }
                   } else { info = "IPv4 (Short Packet)"; isError = true; errorType = "ShortIPPacket"; protocol = "IPv4"; }
-              } else if (etherType === 0x86DD) { // IPv6
-                 protocol = "IPv6";
-                 info = "IPv6 Packet (detail parsing not fully implemented)";
-                 detailedInfo["IPv6"] = { Payload: "Further parsing needed for IPv6 details" };
-              } else if (etherType === 0x0806) { // ARP
-                 protocol = "ARP";
-                 info = "ARP Packet (detail parsing not fully implemented)";
-                 detailedInfo["ARP"] = { Payload: "Further parsing needed for ARP details" };
-              } else {
-                 protocol = `UnknownEtherType_0x${etherType.toString(16)}`;
-                 info = `Unknown EtherType 0x${etherType.toString(16)}`;
-              }
-          } else if (linkLayerType !==1) { // Non-Ethernet
-            protocol = `LinkType_${linkLayerType}`;
-            info = `Packet with Link Layer Type ${linkLayerType} (not Ethernet, raw data shown)`;
+              } else if (etherType === 0x86DD) { protocol = "IPv6"; info = "IPv6 Packet"; detailedInfo["IPv6"] = { Payload: "IPv6 detail parsing TBD" }; }
+              else if (etherType === 0x0806) { protocol = "ARP"; info = "ARP Packet"; detailedInfo["ARP"] = { Payload: "ARP detail parsing TBD" }; }
+              else { protocol = `UnknownEtherType_0x${etherType.toString(16)}`; info = `Unknown EtherType 0x${etherType.toString(16)}`; }
+          } else if (linkLayerType !==1) {
+            protocol = `LinkType_${linkLayerType}`; info = `Packet with Link Layer Type ${linkLayerType}`;
             detailedInfo[protocol] = { DataLength: packetDataBuffer.length };
-          } else {
-            info = "Packet too short for Ethernet header";
-            isError = true; errorType = "ShortPacket";
-          }
+          } else { info = "Packet too short for Ethernet"; isError = true; errorType = "ShortPacket"; }
 
-          const maxHexDumpBytes = 64; // Sama
+          const maxHexDumpBytes = 64;
           const dataToDump = packetDataBuffer || Buffer.alloc(0);
           const actualDataToDump = dataToDump.slice(0, Math.min(dataToDump.length, maxHexDumpBytes));
           for (let i = 0; i < actualDataToDump.length; i += 16) {
@@ -242,12 +194,11 @@ async function parsePcapFileWithPcapNgParser(fileUrl: string, fileName: string):
               hexDump.push(`${i.toString(16).padStart(4, '0')}  ${hex.padEnd(16*3-1)}  ${ascii}`);
           }
       } catch (e: any) { 
-          console.warn(`[API_GET_PACKET_DATA_PCAPNG] Error decoding individual packet ${packetCounter}: ${e.message}`);
-          info = `Error decoding: ${e.message}`;
-          isError = true;
-          errorType = "DecodingError";
+          console.warn(`[API_GET_PACKET_DATA_V2_PCAPNG] Error decoding packet ${packetCounter}: ${e.message}`);
+          info = `Error decoding: ${e.message}`; isError = true; errorType = "DecodingError";
       }
-
+      // ... (akhir logika decoding paket) ...
+      
       const finalPacketData = {
         id: packetCounter, timestamp,
         sourceIp, sourcePort, destIp, destPort, protocol,
@@ -257,26 +208,18 @@ async function parsePcapFileWithPcapNgParser(fileUrl: string, fileName: string):
       };
       parsedPackets.push(finalPacketData);
 
-      // Logika pembuatan koneksi (tetap sama)
+      // Logika pembuatan koneksi tetap sama
       if ((protocol === "TCP" || protocol === "UDP") && sourcePort !== undefined && destPort !== undefined && sourceIp !== "N/A" && destIp !== "N/A") {
           const connIdFwd = `${sourceIp}:${sourcePort}-${destIp}:${destPort}-${protocol}`;
           const connIdRev = `${destIp}:${destPort}-${sourceIp}:${sourcePort}-${protocol}`;
           const connId = connectionMap.has(connIdFwd) ? connIdFwd : connectionMap.has(connIdRev) ? connIdRev : connIdFwd;
-
           if (!connectionMap.has(connId)) {
-              connectionMap.set(connId, {
-                  id: connId, sourceIp, sourcePort, destIp, destPort, protocol,
-                  state: protocol === "TCP" ? (flags.includes("SYN") ? "SYN_SENT" : "ACTIVE") : "ACTIVE", 
-                  packets: [packetCounter], startTime: finalPacketData.timestamp,
-                  hasErrors: isError, errorTypes: isError && errorType ? [errorType] : []
-              });
+              connectionMap.set(connId, { id: connId, sourceIp, sourcePort, destIp, destPort, protocol, state: protocol === "TCP" ? (flags.includes("SYN") ? "SYN_SENT" : "ACTIVE") : "ACTIVE", packets: [packetCounter], startTime: finalPacketData.timestamp, hasErrors: isError, errorTypes: isError && errorType ? [errorType] : [] });
           } else {
               const conn = connectionMap.get(connId);
-              conn.packets.push(packetCounter);
-              conn.endTime = finalPacketData.timestamp;
+              conn.packets.push(packetCounter); conn.endTime = finalPacketData.timestamp;
               if (isError && !conn.hasErrors) conn.hasErrors = true;
               if (isError && errorType && !conn.errorTypes.includes(errorType)) conn.errorTypes.push(errorType);
-              
               if (protocol === "TCP") {
                 if (flags.includes("RST")) conn.state = "RESET";
                 else if (flags.includes("FIN") && flags.includes("ACK")) conn.state = "FIN_ACK";
@@ -286,9 +229,14 @@ async function parsePcapFileWithPcapNgParser(fileUrl: string, fileName: string):
               }
           }
       }
+      
+      lastPacketTime = Date.now();
+      if (packetCounter % 50 === 0) { // Log setiap 50 paket
+          console.log(`[API_GET_PACKET_DATA_V2_PCAPNG] Processed packet ${packetCounter} for ${fileName}. Time since first packet: ${((lastPacketTime - (firstPacketTime || packetProcessStartTime)) / 1000).toFixed(2)}s`);
+      }
 
       if (packetCounter >= MAX_PACKETS_FOR_UI_DISPLAY) {
-        console.warn(`[API_GET_PACKET_DATA_PCAPNG] Reached packet display limit: ${MAX_PACKETS_FOR_UI_DISPLAY}`);
+        console.warn(`[API_GET_PACKET_DATA_V2_PCAPNG] Reached packet display limit (${MAX_PACKETS_FOR_UI_DISPLAY}) for ${fileName}. Processing took ${((Date.now() - startTime) / 1000).toFixed(2)}s so far.`);
         generateAndResolveConnections(); 
       }
     }); 
@@ -296,49 +244,75 @@ async function parsePcapFileWithPcapNgParser(fileUrl: string, fileName: string):
     const generateAndResolveConnections = () => {
         if (promiseResolved) return; 
         const connections = Array.from(connectionMap.values());
-        console.log(`[API_GET_PACKET_DATA_PCAPNG] Resolving with ${parsedPackets.length} packets and ${connections.length} connections.`);
-        resolveOnce({ packets: parsedPackets, connections });
+        const totalProcessingTime = Date.now() - startTime;
+        console.log(`[API_GET_PACKET_DATA_V2_PCAPNG] Resolving for ${fileName} with ${parsedPackets.length} packets, ${connections.length} connections. Total time: ${(totalProcessingTime / 1000).toFixed(2)}s`);
+        cleanupAndResolve({ packets: parsedPackets, connections });
     };
     
     parser.on('end', () => {
       if (promiseResolved) return;
-      console.log(`[API_GET_PACKET_DATA_PCAPNG] Finished parsing PCAP stream. Total packets: ${packetCounter}`);
+      const totalProcessingTime = Date.now() - startTime;
+      console.log(`[API_GET_PACKET_DATA_V2_PCAPNG] Finished parsing stream for ${fileName}. Total packets: ${packetCounter}. Total time: ${(totalProcessingTime / 1000).toFixed(2)}s`);
       generateAndResolveConnections();
     });
 
     parser.on('error', (err: Error) => {
       if (promiseResolved) return;
-      console.error(`[API_GET_PACKET_DATA_PCAPNG] Error parsing PCAP stream:`, err);
-      rejectOnce(new Error(`Error parsing PCAP stream: ${err.message}`));
+      console.error(`[API_GET_PACKET_DATA_V2_PCAPNG] Error parsing stream for ${fileName}:`, err);
+      cleanupAndReject(new Error(`Error parsing PCAP stream: ${err.message}`));
     });
   }); 
 }
 
-
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  const VERCEL_TIMEOUT_SAFETY_MARGIN = 5000; // 5 detik margin keamanan
+  const functionTimeout = (process.env.VERCEL_ENV === 'production' ? 10000 : 60000) - VERCEL_TIMEOUT_SAFETY_MARGIN; // 10s Hobby, 60s Pro
+  
+  const overallStartTime = Date.now();
+  let timeoutHit = false;
+
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => {
+      timeoutHit = true;
+      console.warn(`[API_GET_PACKET_DATA_V2_PCAPNG] Vercel function timeout approached for analysisId: ${params.id}. Aborting parsing.`);
+      reject(new Error(`Parsing aborted due to Vercel function timeout limit (approaching ${functionTimeout / 1000}s). Partial data might be available if parsing started.`));
+    }, functionTimeout)
+  );
+
   try {
     const analysisIdFromParams = params.id;
     if (!analysisIdFromParams) {
-      console.error("[API_GET_PACKET_DATA] Analysis ID missing from params.id"); 
       return NextResponse.json({ error: "Analysis ID is required in path" }, { status: 400 });
     }
 
-    console.log(`[API_GET_PACKET_DATA] Request received for analysisId (from params.id): ${analysisIdFromParams}`);
+    console.log(`[API_GET_PACKET_DATA_V2_PCAPNG] GET request for analysisId: ${analysisIdFromParams}`);
     const pcapRecord = await db.pcapFile.findUnique({ analysisId: analysisIdFromParams });
 
     if (!pcapRecord || !pcapRecord.blobUrl) {
-      console.error(`[API_GET_PACKET_DATA] PCAP file or blobUrl not found for analysisId: ${analysisIdFromParams}`);
       return NextResponse.json({ error: "PCAP file not found for this analysis" }, { status: 404 });
     }
     
-    // Gunakan fungsi parser baru
-    const pcapData = await parsePcapFileWithPcapNgParser(pcapRecord.blobUrl, pcapRecord.originalName);
+    const pcapDataPromise = parsePcapFileWithPcapNgParser(pcapRecord.blobUrl, pcapRecord.originalName);
+    
+    // Race parsing promise against timeout promise
+    const result = await Promise.race([pcapDataPromise, timeoutPromise]) as { packets: any[], connections: any[] };
 
-    return NextResponse.json({ success: true, ...pcapData });
+    if (timeoutHit) { // Jika timeout yang menang race
+        // Error sudah di-reject oleh timeoutPromise, blok catch di bawah akan menangani
+        // Namun, untuk kejelasan, kita bisa throw error lagi di sini jika perlu.
+        // Biasanya, blok catch di bawah akan menangkap error dari timeoutPromise.
+        console.error("[API_GET_PACKET_DATA_V2_PCAPNG] Parsing definitively hit timeout. Error should have been thrown.");
+        // Fallback jika reject dari timeoutPromise tidak langsung menghentikan eksekusi di sini.
+        throw new Error("Parsing aborted due to Vercel function timeout limit.");
+    }
+    
+    console.log(`[API_GET_PACKET_DATA_V2_PCAPNG] Successfully parsed and returning data for ${analysisIdFromParams}. Total GET request time: ${((Date.now() - overallStartTime) / 1000).toFixed(2)}s`);
+    return NextResponse.json({ success: true, ...result });
 
   } catch (error) {
-    console.error("[API_GET_PACKET_DATA] Error fetching packet data:", error);
+    const totalErrorTime = Date.now() - overallStartTime;
+    console.error(`[API_GET_PACKET_DATA_V2_PCAPNG] Error in GET for analysisId ${params.id}. Total time: ${(totalErrorTime / 1000).toFixed(2)}s. Error:`, error);
     const errorMessage = error instanceof Error ? error.message : "Failed to fetch packet data";
-    return NextResponse.json({ success: false, error: errorMessage, details: error instanceof Error ? error.stack : "No stack available" }, { status: 500 });
+    return NextResponse.json({ success: false, error: errorMessage, details: error instanceof Error ? error.stack : "No stack" }, { status: 500 });
   }
 }
