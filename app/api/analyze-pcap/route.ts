@@ -434,12 +434,6 @@ console.log(`[API_ANALYZE_PCAP_V4_PER_ERROR] Error packets for AI:`, JSON.string
           "trafficBehaviorScore": { "score": 0, "justification": "..." },
           "detailedErrorAnalysis": [
             { 
-              "errorType": "ExampleErrorType", 
-              "count": 0, 
-              "description": "...",
-              "possibleCauses": ["...", "..."], 
-              "troubleshootingSuggestions": ["...", "..."],
-              "relatedPacketSamples": []
               "packetNumber": 0,
               "errorType": "ExampleErrorType", 
               "packetInfoFromParser": "...",
