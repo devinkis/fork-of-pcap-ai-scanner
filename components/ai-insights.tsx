@@ -15,7 +15,7 @@ import {
   BarChart2, PieChart as PieChartIcon, Info, Maximize2, Download, 
   Share2, Printer, MessageSquare, Edit3, RefreshCw, Loader2, AlertTriangle, Siren,
   Server as ServerIcon, User as UserIcon, ArrowRight, XCircle as XCircleIcon, Zap, Mail,
-  ArrowLeftRight // Untuk jalur komunikasi
+  ArrowLeftRight, Send
 } from 'lucide-react';
 import {
   Dialog,
@@ -103,77 +103,97 @@ interface TcpResetAnimationProps {
 }
 
 const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Client", serverIp = "Server", resetInitiatorIp, packetInfo, errorType }) => {
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(0); // Mulai dari 0 untuk memicu useEffect pertama kali
   const [showStepLabel, setShowStepLabel] = useState(false);
 
-  const animationSteps = [
-    { name: "SYN", from: clientIp, to: serverIp, color: "blue-500", description: "Client initiates connection" },
-    { name: "SYN-ACK", from: serverIp, to: clientIp, color: "green-500", description: "Server acknowledges and agrees" },
-    { name: "ACK", from: clientIp, to: serverIp, color: "blue-500", description: "Client acknowledges server's response. Connection established." },
-    { name: "RST", from: resetInitiatorIp, to: (resetInitiatorIp === clientIp ? serverIp : clientIp), color: "red-500", isReset: true, description: `Connection reset by ${resetInitiatorIp === clientIp ? "Client" : "Server"}` },
-  ];
+  const animationSteps = React.useMemo(() => [ // Gunakan useMemo agar array tidak dibuat ulang jika props tidak berubah
+    { name: "SYN", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim SYN ke ${serverIp}` },
+    { name: "SYN-ACK", from: serverIp, to: clientIp, color: "green-500", description: `${serverIp} membalas dengan SYN-ACK ke ${clientIp}` },
+    { name: "ACK", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim ACK. Koneksi terbentuk.` },
+    { name: "RST", from: resetInitiatorIp, to: (resetInitiatorIp === clientIp ? serverIp : clientIp), color: "red-500", isReset: true, description: `Paket RST dikirim dari ${resetInitiatorIp || 'salah satu pihak'}, koneksi direset.` },
+  ], [clientIp, serverIp, resetInitiatorIp]);
   
-  const stepDuration = 2000; // Durasi per langkah animasi (ms)
-  const labelDelay = 500; // Delay sebelum label muncul
+  const stepDuration = 2500; 
+  const labelDelay = 300; 
 
   useEffect(() => {
-    setCurrentStep(0); // Reset animasi
-    setShowStepLabel(false);
-    const timeouts: NodeJS.Timeout[] = [];
-    
-    animationSteps.forEach((_, index) => {
+    let timeouts: NodeJS.Timeout[] = [];
+    // Hanya jalankan sequence jika currentStep adalah 0 (awal atau replay)
+    if (currentStep === 0) {
+      setShowStepLabel(false);
+
+      // Mulai langkah pertama setelah sedikit delay untuk memastikan UI siap
       timeouts.push(setTimeout(() => {
-        setCurrentStep(index + 1);
-        setShowStepLabel(false); // Sembunyikan label lama
-        timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay)); // Tampilkan label baru setelah delay
-      }, (index + 1) * stepDuration));
-    });
-    
-    timeouts.push(setTimeout(() => {
-        setCurrentStep(animationSteps.length + 1); // Tandai animasi selesai
-        setShowStepLabel(false);
-    }, (animationSteps.length + 1) * stepDuration + 500)); 
-    
-    return () => timeouts.forEach(clearTimeout);
-  }, [clientIp, serverIp, resetInitiatorIp]); // Hanya re-run jika IP berubah
+        setCurrentStep(1); // Pindah ke langkah pertama
+        timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
+      }, 50)); // Delay kecil
+
+      // Jadwalkan langkah-langkah berikutnya
+      for (let i = 1; i < animationSteps.length; i++) {
+        timeouts.push(
+          setTimeout(() => {
+            setCurrentStep(i + 1); // Pindah ke langkah i+1 (jadi 2, 3, 4)
+            setShowStepLabel(false);
+            timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
+          }, (i * stepDuration) + 50) // Waktu relatif terhadap awal replay
+        );
+      }
+
+      // Jadwalkan status akhir (setelah semua langkah animasi)
+      timeouts.push(
+        setTimeout(() => {
+          setCurrentStep(animationSteps.length + 1); // Status "selesai"
+          setShowStepLabel(true); // Tampilkan pesan akhir
+        }, (animationSteps.length * stepDuration) + 500) // Sedikit lebih lama dari langkah terakhir
+      );
+    }
+
+    return () => {
+      timeouts.forEach(clearTimeout);
+    };
+  // Perhatikan dependency array: currentStep memicu effect, 
+  // animationSteps (yang bergantung pada props IP) memastikan step didefinisikan ulang jika IP berubah.
+  }, [currentStep, animationSteps, stepDuration, labelDelay]);
 
   const getIpRole = (ip: string, isInitiator: boolean, isClient: boolean) => {
-    let role = isClient ? "Client" : "Server";
-    if (isInitiator) role += " (Sends RST)";
+    let role = isClient ? "Klien" : "Server";
+    if (isInitiator) role += " (Pengirim RST)";
     return `${ip} (${role})`;
   }
 
   const currentStepDetails = currentStep > 0 && currentStep <= animationSteps.length ? animationSteps[currentStep - 1] : null;
 
   return (
-    <div className="p-4 space-y-3 min-h-[400px] flex flex-col items-center justify-between bg-slate-100 dark:bg-slate-800/60 rounded-lg border shadow-inner relative overflow-hidden">
+    <div className="p-4 space-y-3 min-h-[420px] flex flex-col items-center justify-between bg-slate-100 dark:bg-slate-800/60 rounded-lg border shadow-inner relative overflow-hidden">
       <div>
-        <p className="text-base font-semibold text-center text-foreground mb-1">
+        <p className="text-lg font-semibold text-center text-foreground mb-1">
           {errorType || "TCP Reset Flow"}
         </p>
-        {packetInfo && <p className="text-xs text-center text-muted-foreground mb-3">Context: {packetInfo}</p>}
+        {packetInfo && <p className="text-xs text-center text-muted-foreground mb-4">Konteks: {packetInfo}</p>}
       </div>
       
-      <div className="flex justify-around w-full items-center mb-4 px-4">
+      <div className="flex justify-around w-full items-center mb-6 px-4">
         <div className="text-center w-2/5 flex flex-col items-center">
-          <UserIcon size={40} className="text-blue-600 dark:text-blue-400 mb-1" />
-          <p className="text-xs font-medium truncate max-w-full" title={getIpRole(clientIp, clientIp === resetInitiatorIp, true)}>{getIpRole(clientIp, clientIp === resetInitiatorIp, true)}</p>
+          <UserIcon size={48} className="text-blue-600 dark:text-blue-400 mb-1.5" />
+          <p className="text-sm font-semibold truncate max-w-full" title={getIpRole(clientIp, clientIp === resetInitiatorIp, true)}>{clientIp}</p>
+          <p className="text-xs text-muted-foreground">(Klien{clientIp === resetInitiatorIp ? ", Pengirim RST" : ""})</p>
         </div>
         <div className="w-1/5 flex justify-center items-center">
-            <ArrowLeftRight size={24} className="text-slate-400 dark:text-slate-500" />
+            <ArrowLeftRight size={28} className="text-slate-400 dark:text-slate-500 opacity-70" />
         </div> 
         <div className="text-center w-2/5 flex flex-col items-center">
-          <ServerIcon size={40} className="text-green-600 dark:text-green-400 mb-1" />
-          <p className="text-xs font-medium truncate max-w-full" title={getIpRole(serverIp, serverIp === resetInitiatorIp, false)}>{getIpRole(serverIp, serverIp === resetInitiatorIp, false)}</p>
+          <ServerIcon size={48} className="text-green-600 dark:text-green-400 mb-1.5" />
+          <p className="text-sm font-semibold truncate max-w-full" title={getIpRole(serverIp, serverIp === resetInitiatorIp, false)}>{serverIp}</p>
+          <p className="text-xs text-muted-foreground">(Server{serverIp === resetInitiatorIp ? ", Pengirim RST" : ""})</p>
         </div>
       </div>
 
       {/* Animated Packets Area */}
-      <div className="w-full h-28 relative mb-2 border-y border-dashed border-slate-300 dark:border-slate-700 flex items-center">
+      <div className="w-full h-32 relative mb-3 border-y border-dashed border-slate-300 dark:border-slate-700 flex flex-col justify-around">
         {animationSteps.map((step, index) => {
           const isActive = currentStep === index + 1;
           const isFromClient = step.from === clientIp;
-          const packetBaseColor = step.isReset ? "red-600" : step.color === "blue-500" ? "blue-600" : "green-600";
+          const packetBaseColor = step.isReset ? "text-red-600 dark:text-red-400" : step.color === "blue-500" ? "text-blue-600 dark:text-blue-400" : "text-green-600 dark:text-green-400";
           const packetBgColor = step.isReset ? "bg-red-500" : step.color === "blue-500" ? "bg-blue-500" : "bg-green-500";
           
           return (
@@ -181,19 +201,21 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Clien
               key={index}
               className={`absolute top-1/2 -translate-y-1/2 w-auto flex items-center transition-opacity duration-300 ease-in-out
                           ${isActive ? 'opacity-100 z-10' : 'opacity-0 -z-10'}
-                          ${isActive && isFromClient ? 'animate-packet-move-right' : ''}
-                          ${isActive && !isFromClient ? 'animate-packet-move-left' : ''}
+                          ${isActive && isFromClient ? 'animate-packet-move-right-detailed' : ''}
+                          ${isActive && !isFromClient ? 'animate-packet-move-left-detailed' : ''}
                         `}
             >
-              <div className={`flex items-center p-2 rounded-md shadow-lg text-white text-sm font-medium ${packetBgColor}`}>
-                <Mail size={16} className="mr-2" />
+              <div className={`flex items-center p-2.5 rounded-lg shadow-xl text-white text-sm font-semibold ${packetBgColor}`}>
+                <Send size={18} className="mr-2" /> 
                 {step.name}
-                {step.isReset && <XCircleIcon size={16} className="ml-2"/>}
+                {step.isReset && <XCircleIcon size={18} className="ml-2"/>}
               </div>
-              {/* Keterangan arah panah */}
               {isActive && (
-                <div className={`absolute text-xs font-semibold ${isFromClient ? 'left-full ml-2' : 'right-full mr-2'} whitespace-nowrap ${step.isReset ? 'text-red-500' : `text-${packetBaseColor}`}`}>
-                  {isFromClient ? <ArrowRight size={16}/> : <ArrowRight size={16} className="transform rotate-180"/>}
+                <div className={`absolute -bottom-6 text-xs font-medium ${packetBaseColor} ${isFromClient ? 'left-0 text-left' : 'right-0 text-right'} whitespace-nowrap w-full px-1`}>
+                  {isFromClient ? 
+                    <span className="flex items-center"><ArrowRight size={14} className="mr-1"/> {step.from} ke {step.to}</span> : 
+                    <span className="flex items-center justify-end">{step.to} <ArrowLeft size={14} className="mx-1"/> {step.from}</span>
+                  }
                 </div>
               )}
             </div>
@@ -201,53 +223,51 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Clien
         })}
       </div>
       
-      {/* Keterangan Tahap Animasi */}
-      <div className="h-10 flex items-center justify-center text-center">
+      <div className="h-12 flex items-center justify-center text-center px-2">
         {currentStepDetails && showStepLabel && (
-          <p className={`text-sm text-muted-foreground animate-fade-in`}>
-            <span className={`font-semibold ${currentStepDetails.isReset ? 'text-red-500' : `text-${currentStepDetails.color}`}`}>{currentStepDetails.name}</span>: {currentStepDetails.description}
+          <p className={`text-sm text-muted-foreground animate-fade-in-custom`}>
+            <span className={`font-bold ${currentStepDetails.isReset ? 'text-red-600 dark:text-red-400' : currentStepDetails.color === 'blue-500' ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'}`}>{currentStepDetails.name}</span>: {currentStepDetails.description}
           </p>
         )}
         {currentStep > animationSteps.length && (
-             <div className="p-2 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-md text-center animate-fade-in">
-                <XCircleIcon className="w-5 h-5 text-red-500 inline-block mr-1" />
-                <span className="text-xs text-red-700 dark:text-red-300 font-medium">
-                    Connection Reset by: {resetInitiatorIp || "Unknown"}
+             <div className="p-2 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-md text-center animate-fade-in-custom">
+                <XCircleIcon className="w-5 h-5 text-red-600 dark:text-red-400 inline-block mr-1.5" />
+                <span className="text-sm text-red-700 dark:text-red-500 font-semibold">
+                    Koneksi Di-reset oleh: {resetInitiatorIp || "Tidak diketahui"}
                 </span>
             </div>
         )}
       </div>
 
-
       <Button variant="outline" size="sm" onClick={() => setCurrentStep(0)} className="mt-auto text-xs border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-700">
-        <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Replay Animation
+        <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Ulangi Animasi
       </Button>
       
       <style jsx global>{`
-        @keyframes packet-move-right {
-          0% { left: 5%; opacity: 0; transform: translateY(-50%) translateX(-100%); }
-          10% { opacity: 1; transform: translateY(-50%) translateX(0%); }
-          90% { opacity: 1; transform: translateY(-50%) translateX(0%); }
-          100% { left: 85%; opacity: 0; transform: translateY(-50%) translateX(100%); }
+        @keyframes packet-move-right-detailed {
+          0% { left: 10%; opacity: 0; transform: translateY(-50%) scale(0.9); }
+          20% { opacity: 1; transform: translateY(-50%) scale(1); }
+          80% { opacity: 1; transform: translateY(-50%) scale(1); }
+          100% { left: calc(90% - 60px); opacity: 0; transform: translateY(-50%) scale(0.9); } /* Adjust 60px based on packet width */
         }
-        .animate-packet-move-right {
-          animation: packet-move-right ${stepDuration / 1000}s ease-in-out forwards;
+        .animate-packet-move-right-detailed {
+          animation: packet-move-right-detailed ${stepDuration / 1000}s ease-in-out forwards;
         }
-        @keyframes packet-move-left {
-          0% { right: 5%; opacity: 0; transform: translateY(-50%) translateX(100%); }
-          10% { opacity: 1; transform: translateY(-50%) translateX(0%); }
-          90% { opacity: 1; transform: translateY(-50%) translateX(0%); }
-          100% { right: 85%; opacity: 0; transform: translateY(-50%) translateX(-100%); }
+        @keyframes packet-move-left-detailed {
+          0% { right: 10%; opacity: 0; transform: translateY(-50%) scale(0.9); }
+          20% { opacity: 1; transform: translateY(-50%) scale(1); }
+          80% { opacity: 1; transform: translateY(-50%) scale(1); }
+          100% { right: calc(90% - 60px); opacity: 0; transform: translateY(-50%) scale(0.9); } /* Adjust 60px based on packet width */
         }
-        .animate-packet-move-left {
-          animation: packet-move-left ${stepDuration / 1000}s ease-in-out forwards;
+        .animate-packet-move-left-detailed {
+          animation: packet-move-left-detailed ${stepDuration / 1000}s ease-in-out forwards;
         }
-        @keyframes fade-in {
-          from { opacity: 0; }
-          to { opacity: 1; }
+        @keyframes fade-in-custom {
+          from { opacity: 0; transform: translateY(5px); }
+          to { opacity: 1; transform: translateY(0px); }
         }
-        .animate-fade-in {
-          animation: fade-in 0.5s ease-out forwards;
+        .animate-fade-in-custom {
+          animation: fade-in-custom 0.5s ease-out forwards;
         }
       `}</style>
     </div>
@@ -295,17 +315,9 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
       return;
     }
     
-    // Menentukan client dan server berdasarkan paket sampel pertama yang terkait error
-    // Ini asumsi sederhana, bisa jadi perlu logika lebih kompleks
     let clientIpForAnim = relatedPacket.source;
     let serverIpForAnim = relatedPacket.destination;
-    let resetInitiator = relatedPacket.source; // Default pengirim RST adalah source paket error
-
-    // Jika errorType secara spesifik menyebutkan siapa yang mereset, kita bisa gunakan itu
-    // (Ini memerlukan AI untuk memberikan informasi tersebut, atau parsing yang lebih detail)
-    // Contoh: if (errorDetail.errorType.includes("from server")) resetInitiator = relatedPacket.destination;
-    //         else if (errorDetail.errorType.includes("from client")) resetInitiator = relatedPacket.source;
-
+    let resetInitiator = relatedPacket.source; 
 
     setAnimationData({
       type: errorDetail.errorType,
