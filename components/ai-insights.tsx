@@ -15,7 +15,7 @@ import {
   BarChart2, PieChart as PieChartIcon, Info, Maximize2, Download, 
   Share2, Printer, MessageSquare, Edit3, RefreshCw, Loader2, AlertTriangle, Siren,
   Server as ServerIcon, User as UserIcon, ArrowRight, XCircle as XCircleIcon, Zap, Mail,
-  ArrowLeftRight, Send, PhoneOff, ArrowLeft // Tambahkan ArrowLeft
+  ArrowLeftRight, Send, PhoneOff, ArrowLeft
 } from 'lucide-react';
 import {
   Dialog,
@@ -44,7 +44,22 @@ interface Conversation { id: string; sourceIp: string; destinationIp: string; pr
 interface AlertInfo { id: string; timestamp: string; severity: 'Low' | 'Medium' | 'High' | 'Critical'; description: string; sourceIp?: string; destinationIp?: string; protocol?: string; signature?: string; }
 interface DetailedPacketInfo { id: string; timestamp: string; source: string; destination: string; protocol: string; length: number; summary: string; payload?: string; }
 interface IOC { type: "ip" | "domain" | "url" | "hash"; value: string; context: string; confidence: number; }
-interface ErrorAnalysisDetail { errorType: string; count: number; description: string; possibleCauses: string[]; troubleshootingSuggestions: string[]; relatedPacketSamples?: number[]; }
+
+// Struktur untuk laporan error dari AI (bisa agregat per tipe atau per instance)
+interface ErrorReportItem { 
+  errorType: string; 
+  // Jika agregat:
+  count?: number; 
+  // Jika per instance:
+  packetNumber?: number;
+  packetInfo?: string; 
+  // Detail umum:
+  description: string; 
+  possibleCauses: string[]; 
+  troubleshootingSuggestions: string[]; 
+  relatedPacketSamples?: number[]; 
+}
+
 interface SamplePacketForContext { no: number; timestamp: string; source: string; destination: string; protocol: string; length: number; info: string; isError?: boolean; errorType?: string; }
 
 interface VoipCallAnalysis {
@@ -109,7 +124,7 @@ interface AiInsightsData {
   statistics?: any;
   timeline?: Array<{ time?: string; event?: string; severity?: string; }>;
   trafficBehaviorScore?: { score: number; justification: string; };
-  errorAnalysisReport?: ErrorAnalysisDetail[];
+  errorAnalysisReport?: ErrorReportItem[]; // Menggunakan ErrorReportItem
   samplePacketsForContext?: SamplePacketForContext[];
   voipAnalysisReport?: VoipAnalysisReport; 
 }
@@ -133,55 +148,63 @@ interface TcpResetAnimationProps {
   errorType?: string;
 }
 
-const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Client", serverIp = "Server", resetInitiatorIp, packetInfo, errorType }) => {
+const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien Tidak Diketahui", serverIp = "Server Tidak Diketahui", resetInitiatorIp, packetInfo, errorType }) => {
   const [currentStep, setCurrentStep] = useState(0); 
   const [showStepLabel, setShowStepLabel] = useState(false);
+  const [isReplaying, setIsReplaying] = useState(false);
 
   const animationSteps = React.useMemo(() => [ 
     { name: "SYN", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim SYN (Synchronization) ke ${serverIp} untuk memulai koneksi.` },
     { name: "SYN-ACK", from: serverIp, to: clientIp, color: "green-500", description: `${serverIp} merespons dengan SYN-ACK (Synchronization-Acknowledgement) ke ${clientIp}.` },
     { name: "ACK", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim ACK (Acknowledgement). Koneksi TCP berhasil terbentuk.` },
-    { name: "RST", from: resetInitiatorIp, to: (resetInitiatorIp === clientIp ? serverIp : clientIp), color: "red-500", isReset: true, description: `Paket RST (Reset) dikirim dari ${resetInitiatorIp || 'salah satu pihak'}, mengindikasikan koneksi dihentikan secara paksa.` },
+    { name: "RST", from: resetInitiatorIp, to: (resetInitiatorIp === clientIp ? serverIp : clientIp), color: "red-600", isReset: true, description: `Paket RST (Reset) dikirim dari ${resetInitiatorIp || 'salah satu pihak'}, mengindikasikan koneksi dihentikan secara paksa.` },
   ], [clientIp, serverIp, resetInitiatorIp]);
   
-  const stepDuration = 3000; // Durasi per langkah animasi (ms) - lebih lambat lagi
-  const labelDelay = 500; // Delay sebelum label deskripsi muncul
+  const stepDuration = 3000; 
+  const labelDelay = 600; 
 
   useEffect(() => {
     let timeouts: NodeJS.Timeout[] = [];
-    if (currentStep === 0) { // Hanya trigger sequence jika currentStep adalah 0 (awal atau setelah replay)
-      setShowStepLabel(false);
-
-      // Mulai langkah pertama setelah sedikit delay untuk memastikan UI siap
-      timeouts.push(setTimeout(() => {
-        setCurrentStep(1); // Pindah ke langkah pertama
-        timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
-      }, 100)); // Delay awal yang sangat kecil
-
-      // Jadwalkan langkah-langkah berikutnya
-      for (let i = 1; i < animationSteps.length; i++) {
-        timeouts.push(
-          setTimeout(() => {
-            setCurrentStep(i + 1); // Pindah ke langkah i+1 (jadi 2, 3, 4)
-            setShowStepLabel(false); // Sembunyikan label lama
-            timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay)); // Tampilkan label baru setelah delay
-          }, (i * stepDuration) + 100) // Waktu relatif terhadap awal replay
-        );
-      }
-
-      // Jadwalkan status akhir (setelah semua langkah animasi)
-      timeouts.push(
-        setTimeout(() => {
-          setCurrentStep(animationSteps.length + 1); // Status "selesai"
-          setShowStepLabel(true); // Tampilkan pesan akhir (pesan reset)
-        }, (animationSteps.length * stepDuration) + 500) 
-      );
+    
+    if (currentStep === 0 && isReplaying) { // Hanya reset jika replay ditekan
+        setIsReplaying(false); // Reset flag replay
     }
 
-    return () => { // Cleanup function
-      timeouts.forEach(clearTimeout);
-    };
-  }, [currentStep, animationSteps, stepDuration, labelDelay]); // Re-run jika currentStep atau definisi steps berubah
+    if (currentStep === 0 && !isReplaying ) { // Mulai animasi jika step 0 dan bukan karena replay baru saja selesai
+      setShowStepLabel(false);
+      // Mulai langkah pertama setelah sedikit delay
+      timeouts.push(setTimeout(() => {
+        setCurrentStep(1);
+        timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
+      }, 100)); 
+    } else if (currentStep > 0 && currentStep <= animationSteps.length) {
+      // Jadwalkan langkah berikutnya jika bukan langkah terakhir
+      if (currentStep < animationSteps.length) {
+        timeouts.push(
+          setTimeout(() => {
+            setCurrentStep(currentStep + 1);
+            setShowStepLabel(false);
+            timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
+          }, stepDuration)
+        );
+      } else { // Langkah terakhir (RST) sudah ditampilkan, jadwalkan untuk state "selesai"
+        timeouts.push(
+          setTimeout(() => {
+            setCurrentStep(animationSteps.length + 1); 
+            setShowStepLabel(true); 
+          }, stepDuration + labelDelay) 
+        );
+      }
+    }
+    
+    return () => { timeouts.forEach(clearTimeout); };
+  }, [currentStep, animationSteps, stepDuration, labelDelay, isReplaying]);
+
+  const handleReplay = () => {
+    setIsReplaying(true); // Set flag replay
+    setCurrentStep(0);    // Ini akan memicu useEffect untuk memulai ulang
+  };
+
 
   const getIpRole = (ip: string, isInitiator: boolean, isClient: boolean) => {
     let role = isClient ? "Klien" : "Server";
@@ -226,11 +249,11 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Clien
           
           return (
             <div
-              key={index}
-              className={`absolute top-1/2 -translate-y-1/2 w-auto flex items-center transition-all duration-1000 ease-in-out
+              key={`${step.name}-${index}-${currentStep}`} // Key diubah agar re-render saat replay
+              className={`absolute top-1/2 -translate-y-1/2 w-auto flex items-center transition-opacity duration-300 ease-in-out
                           ${isActive ? 'opacity-100 z-10' : 'opacity-0 -z-10'}
-                          ${isActive && isFromClient ? 'animate-packet-move-right-detailed-v3' : ''}
-                          ${isActive && !isFromClient ? 'animate-packet-move-left-detailed-v3' : ''}
+                          ${isActive && isFromClient ? 'animate-packet-move-right-detailed-v5' : ''}
+                          ${isActive && !isFromClient ? 'animate-packet-move-left-detailed-v5' : ''}
                         `}
             >
               <div className={`flex items-center py-2 px-3 rounded-lg shadow-2xl text-white text-base font-semibold ${packetBgColor}`}>
@@ -238,12 +261,11 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Clien
                 {step.name}
                 {step.isReset && <XCircleIcon size={18} className="ml-2.5"/>}
               </div>
-              {/* Keterangan source & dest pada paket */}
               {isActive && (
                 <div className={`absolute -bottom-8 text-xs font-semibold ${packetBaseColor} ${isFromClient ? 'left-0 text-left' : 'right-0 text-right'} whitespace-nowrap w-full px-1`}>
                   {isFromClient ? 
-                    <span className="flex items-center"><ArrowRight size={16} className="mr-1.5"/> {step.from} <span className="mx-1 text-slate-400 dark:text-slate-500">→</span> {step.to}</span> : 
-                    <span className="flex items-center justify-end">{step.to} <span className="mx-1 text-slate-400 dark:text-slate-500">←</span> {step.from} <ArrowLeft size={16} className="ml-1.5"/></span>
+                    <span className="flex items-center"><ArrowRight size={16} className="mr-1.5"/> {step.from || 'N/A'} <span className="mx-1 text-slate-400 dark:text-slate-500">→</span> {step.to || 'N/A'}</span> : 
+                    <span className="flex items-center justify-end">{step.to || 'N/A'} <span className="mx-1 text-slate-400 dark:text-slate-500">←</span> {step.from || 'N/A'} <ArrowLeft size={16} className="ml-1.5"/></span>
                   }
                 </div>
               )}
@@ -252,15 +274,14 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Clien
         })}
       </div>
       
-      {/* Keterangan Tahap Animasi */}
       <div className="h-16 flex items-center justify-center text-center px-2">
         {currentStepDetails && showStepLabel && (
-          <p className={`text-sm text-muted-foreground animate-fade-in-custom-v2`}>
+          <p className={`text-sm text-muted-foreground animate-fade-in-custom-v3`}>
             <span className={`font-bold ${currentStepDetails.isReset ? 'text-red-600 dark:text-red-400' : currentStepDetails.color === 'blue-500' ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'}`}>{currentStepDetails.name}</span>: {currentStepDetails.description}
           </p>
         )}
-        {currentStep > animationSteps.length && showStepLabel && ( // Tampilkan ini hanya jika animasi selesai dan label harus muncul
-             <div className="p-3 bg-red-100 dark:bg-red-900/40 border-2 border-red-400 dark:border-red-600 rounded-lg text-center animate-fade-in-custom-v2 shadow-md">
+        {currentStep > animationSteps.length && showStepLabel && (
+             <div className="p-3 bg-red-100 dark:bg-red-900/40 border-2 border-red-400 dark:border-red-600 rounded-lg text-center animate-fade-in-custom-v3 shadow-md">
                 <XCircleIcon className="w-6 h-6 text-red-600 dark:text-red-400 inline-block mr-2" />
                 <span className="text-sm text-red-700 dark:text-red-300 font-semibold align-middle">
                     Koneksi Di-reset oleh: {resetInitiatorIp || "Tidak diketahui"}
@@ -269,35 +290,35 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Clien
         )}
       </div>
 
-      <Button variant="outline" size="sm" onClick={() => setCurrentStep(0)} className="mt-auto text-sm border-slate-400 hover:bg-slate-200 dark:border-slate-600 dark:hover:bg-slate-700/80 shadow">
+      <Button variant="outline" size="sm" onClick={handleReplay} className="mt-auto text-sm border-slate-400 hover:bg-slate-200 dark:border-slate-600 dark:hover:bg-slate-700/80 shadow">
         <RefreshCw className="mr-2 h-4 w-4" /> Ulangi Animasi
       </Button>
       
       <style jsx global>{`
-        @keyframes packet-move-right-detailed-v3 {
+        @keyframes packet-move-right-detailed-v5 {
           0% { left: 10%; opacity: 0; transform: translateY(-50%) scale(0.9); }
-          15% { opacity: 1; transform: translateY(-50%) scale(1); } /* Muncul */
-          85% { opacity: 1; transform: translateY(-50%) scale(1); } /* Diam di tengah */
-          100% { left: calc(90% - 70px); opacity: 0; transform: translateY(-50%) scale(0.9); } /* Hilang di kanan (sesuaikan 70px dengan lebar paket) */
+          15% { opacity: 1; transform: translateY(-50%) scale(1); }
+          85% { opacity: 1; transform: translateY(-50%) scale(1); }
+          100% { left: calc(90% - 75px); opacity: 0; transform: translateY(-50%) scale(0.9); }
         }
-        .animate-packet-move-right-detailed {
-          animation: packet-move-right-detailed-v3 ${stepDuration / 1000}s ease-in-out forwards;
+        .animate-packet-move-right-detailed-v5 { /* Nama class diubah untuk memastikan update */
+          animation: packet-move-right-detailed-v5 ${stepDuration / 1000}s ease-in-out forwards;
         }
-        @keyframes packet-move-left-detailed-v3 {
+        @keyframes packet-move-left-detailed-v5 {
           0% { right: 10%; opacity: 0; transform: translateY(-50%) scale(0.9); }
           15% { opacity: 1; transform: translateY(-50%) scale(1); }
           85% { opacity: 1; transform: translateY(-50%) scale(1); }
-          100% { right: calc(90% - 70px); opacity: 0; transform: translateY(-50%) scale(0.9); } /* Sesuaikan 70px dengan lebar paket */
+          100% { right: calc(90% - 75px); opacity: 0; transform: translateY(-50%) scale(0.9); }
         }
-        .animate-packet-move-left-detailed {
-          animation: packet-move-left-detailed-v3 ${stepDuration / 1000}s ease-in-out forwards;
+        .animate-packet-move-left-detailed-v5 { /* Nama class diubah */
+          animation: packet-move-left-detailed-v5 ${stepDuration / 1000}s ease-in-out forwards;
         }
-        @keyframes fade-in-custom-v2 {
-          from { opacity: 0; transform: translateY(10px); }
+        @keyframes fade-in-custom-v3 {
+          from { opacity: 0; transform: translateY(12px); }
           to { opacity: 1; transform: translateY(0px); }
         }
         .animate-fade-in-custom {
-          animation: fade-in-custom-v2 0.7s ease-out forwards;
+          animation: fade-in-custom-v3 0.8s ease-out forwards;
         }
       `}</style>
     </div>
@@ -332,32 +353,43 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   const handleShare = () => { if(navigator.share){navigator.share({title:`PCAP Analysis: ${data?.fileName||analysisId}`,text:`Check out the AI-driven analysis for this PCAP file: ${data?.summary||"No summary available."}`,url:window.location.href,}).then(()=>console.log("Successful share")).catch((error)=>console.log("Error sharing",error));}else{navigator.clipboard.writeText(window.location.href).then(()=>alert("Link copied to clipboard!")).catch(()=>alert("Could not copy link."));}};
   const handlePrint = () => { window.print(); };
 
-  const handleVisualizeError = (errorDetail: ErrorAnalysisDetail) => {
-    if (!data?.samplePacketsForContext || !errorDetail.relatedPacketSamples || errorDetail.relatedPacketSamples.length === 0) {
-      alert("No related packet samples available to visualize this error.");
-      return;
+  const handleVisualizeError = (errorDetail: ErrorReportItem) => { // Menggunakan ErrorReportItem
+    // Jika errorAnalysisReport adalah array dari analisis per paket error
+    if (errorDetail.packetNumber && data?.samplePacketsForContext) {
+        const relatedPacket = data.samplePacketsForContext.find(p => p.no === errorDetail.packetNumber);
+        if (relatedPacket) {
+            setAnimationData({
+                type: errorDetail.errorType,
+                clientIp: relatedPacket.source, 
+                serverIp: relatedPacket.destination,
+                packetNo: relatedPacket.no,
+                packetInfo: relatedPacket.info,
+                // Asumsi pengirim RST adalah source dari paket yang dilaporkan error,
+                // ini mungkin perlu logika lebih jika errorType bukan RST langsung dari source itu
+                resetInitiatorIp: relatedPacket.source 
+            });
+            setAnimationModalOpen(true);
+            return;
+        }
     }
-    const firstPacketNo = errorDetail.relatedPacketSamples[0];
-    const relatedPacket = data.samplePacketsForContext.find(p => p.no === firstPacketNo);
-
-    if (!relatedPacket) {
-      alert(`Details for packet sample #${firstPacketNo} not found in context data.`);
-      return;
+    // Fallback jika errorDetail adalah agregat (seperti sebelumnya)
+    else if (errorDetail.relatedPacketSamples && errorDetail.relatedPacketSamples.length > 0 && data?.samplePacketsForContext) {
+        const firstPacketNo = errorDetail.relatedPacketSamples[0];
+        const relatedPacket = data.samplePacketsForContext.find(p => p.no === firstPacketNo);
+        if (relatedPacket) {
+            setAnimationData({
+                type: errorDetail.errorType,
+                clientIp: relatedPacket.source,
+                serverIp: relatedPacket.destination,
+                packetNo: relatedPacket.no,
+                packetInfo: relatedPacket.info,
+                resetInitiatorIp: relatedPacket.source 
+            });
+            setAnimationModalOpen(true);
+            return;
+        }
     }
-    
-    let clientIpForAnim = relatedPacket.source;
-    let serverIpForAnim = relatedPacket.destination;
-    let resetInitiator = relatedPacket.source; 
-
-    setAnimationData({
-      type: errorDetail.errorType,
-      clientIp: clientIpForAnim, 
-      serverIp: serverIpForAnim,
-      packetNo: relatedPacket.no,
-      packetInfo: relatedPacket.info,
-      resetInitiatorIp: resetInitiator 
-    });
-    setAnimationModalOpen(true);
+    alert("No specific packet context available to visualize this error flow accurately.");
   };
 
 
@@ -438,40 +470,37 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                         </CardHeader>
                         <CardContent>
                           <Accordion type="multiple" className="w-full">
-                            {data.errorAnalysisReport.map((errorDetail, index) => (
+                            {data.errorAnalysisReport.map((errorItem, index) => ( // Diubah ke errorItem
                               <AccordionItem value={`error-${index}`} key={`error-${index}`}>
                                 <AccordionTrigger className="hover:no-underline text-sm md:text-base">
                                   <div className="flex items-center justify-between w-full">
-                                    <span className="font-semibold">{errorDetail.errorType}</span>
-                                    <Badge variant="destructive" className="text-xs">{errorDetail.count} occurrences</Badge>
+                                    <span className="font-semibold">{errorItem.errorType} {errorItem.packetNumber ? `(Packet #${errorItem.packetNumber})` : ''}</span>
+                                    {errorItem.count && <Badge variant="destructive" className="text-xs">{errorItem.count} occurrences</Badge>}
                                   </div>
                                 </AccordionTrigger>
                                 <AccordionContent className="pt-2 pb-4 px-1 space-y-3 text-sm">
-                                  <p><strong>Description:</strong> {errorDetail.description}</p>
+                                  {errorItem.packetInfo && <p><strong>Packet Info:</strong> {errorItem.packetInfo}</p>}
+                                  <p><strong>Description:</strong> {errorItem.description}</p>
                                   <div>
                                     <h4 className="font-semibold mb-1">Possible Causes:</h4>
                                     <ul className="list-disc pl-5 space-y-0.5 text-xs">
-                                      {errorDetail.possibleCauses.map((cause, i) => <li key={i}>{cause}</li>)}
+                                      {errorItem.possibleCauses.map((cause, i) => <li key={i}>{cause}</li>)}
                                     </ul>
                                   </div>
                                   <div>
                                     <h4 className="font-semibold mb-1">Troubleshooting Suggestions:</h4>
                                     <ul className="list-disc pl-5 space-y-0.5 text-xs">
-                                      {errorDetail.troubleshootingSuggestions.map((suggestion, i) => <li key={i}>{suggestion}</li>)}
+                                      {errorItem.troubleshootingSuggestions.map((suggestion, i) => <li key={i}>{suggestion}</li>)}
                                     </ul>
                                   </div>
-                                  {errorDetail.relatedPacketSamples && errorDetail.relatedPacketSamples.length > 0 && (
-                                    <p className="text-xs text-muted-foreground">
-                                      Related sample packet numbers: {errorDetail.relatedPacketSamples.join(', ')}
-                                    </p>
-                                  )}
-                                  {(errorDetail.errorType.toLowerCase().includes("tcp reset") || errorDetail.errorType.toLowerCase().includes("reset")) && 
-                                   errorDetail.relatedPacketSamples && errorDetail.relatedPacketSamples.length > 0 && (
+                                  {/* Tombol visualisasi bisa lebih generik atau spesifik per errorType */}
+                                  {(errorItem.errorType.toLowerCase().includes("tcp reset") || errorItem.errorType.toLowerCase().includes("reset")) && 
+                                   (errorItem.relatedPacketSamples && errorItem.relatedPacketSamples.length > 0 || errorItem.packetNumber) && (
                                     <div className="mt-3 pt-3 border-t dark:border-gray-700">
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => handleVisualizeError(errorDetail)}
+                                        onClick={() => handleVisualizeError(errorItem)} // Mengirim errorItem
                                         className="text-xs"
                                       >
                                         <Zap className="mr-1.5 h-3.5 w-3.5" /> Visualize Flow

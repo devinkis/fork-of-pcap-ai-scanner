@@ -358,19 +358,19 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Failed to parse PCAP file data for AI." }, { status: 500 });
     }
 
-    const errorPacketsForAI = (extractedPcapData.samplePackets || [])
-    .filter((packet: any) => packet.isError && packet.errorType)
-    .map((packet: any) => ({ // Kirim detail yang relevan untuk AI
-        no: packet.no,
-        errorType: packet.errorType,
-        info: packet.info, // Info singkat dari parser
-        source: packet.source,
-        destination: packet.destination,
-        protocol: packet.protocol,
-        timestamp: packet.timestamp
-    })).slice(0, 100); // Batasi hingga 7 error instance untuk AI agar prompt tidak terlalu panjang
-
-console.log(`[API_ANALYZE_PCAP_V4_PER_ERROR] Error packets for AI:`, JSON.stringify(errorPacketsForAI));
+    const errorSummaryForAI: { [type: string]: { count: number, samplePacketNumbers: number[] } } = {};
+    (extractedPcapData.samplePackets || []).forEach((packet: any) => {
+        if (packet.isError && packet.errorType) {
+            if (!errorSummaryForAI[packet.errorType]) {
+                errorSummaryForAI[packet.errorType] = { count: 0, samplePacketNumbers: [] };
+            }
+            errorSummaryForAI[packet.errorType].count++;
+            if (errorSummaryForAI[packet.errorType].samplePacketNumbers.length < 3) {
+                errorSummaryForAI[packet.errorType].samplePacketNumbers.push(packet.no);
+            }
+        }
+    });
+    console.log(`[API_ANALYZE_PCAP_V3_ERROR_PROMPT] Error summary for AI:`, JSON.stringify(errorSummaryForAI));
 
 
     const dataForAI = {
@@ -378,7 +378,7 @@ console.log(`[API_ANALYZE_PCAP_V4_PER_ERROR] Error packets for AI:`, JSON.string
       fileName: pcapRecord.originalName,
       fileSize: pcapRecord.size,
       ...extractedPcapData,
-      errorPackets: errorPacketsForAI, // Ganti errorSummary dengan ini 
+      errorSummary: errorSummaryForAI, 
     };
 
     const { text: rawAnalysisText } = await generateText({
@@ -389,20 +389,20 @@ console.log(`[API_ANALYZE_PCAP_V4_PER_ERROR] Error packets for AI:`, JSON.string
         
         Extracted Data:
         - Statistics: ${JSON.stringify(dataForAI.statistics, null, 2)}
-        - Sample Packets (info umum): ${JSON.stringify(dataForAI.samplePackets, null, 2)} 
-        - Specific Error Packets for Detailed Analysis (up to 7 instances): ${JSON.stringify(dataForAI.errorPackets, null, 2)}
+        - Sample Packets (up to ${MAX_SAMPLES_FOR_AI}, 'no' is packet num, 'isError' & 'errorType' indicate issues): ${JSON.stringify(dataForAI.samplePackets, null, 2)}
+        - Summary of Errors in Sample Packets: ${JSON.stringify(dataForAI.errorSummary, null, 2)}
 
         Based on THIS SPECIFIC data:
         1.  Provide a concise summary of findings and overall security posture.
         2.  Determine a threat level (low, medium, high, critical).
         3.  Provide a traffic behavior score (0-100, 0=benign, 100=malicious) with justification.
-        4.  **Detailed Error Analysis**: For EACH packet in 'Specific Error Packets for Detailed Analysis' (if any):
-           - packetNumber: (the 'no' field from the error packet)
-           - errorType: (e.g., "TCP Reset", "TruncatedHeader")
-           - packetInfoFromParser: (the 'info' field from the error packet, which is a brief summary from the parser)
-           - detailedExplanation: Provide an in-depth explanation of what this specific errorType means in the context of THIS packet (source, destination, protocol, and its parser-generated info).
-           - probableCauseInThisContext: Based on this specific packet's details, what is the most probable cause for this error instance?
-           - specificActionableRecommendations: [Array of 1-2 concise, actionable steps to investigate or fix THIS specific error instance.]
+        4.  **Error Analysis Report**: For each significant errorType in 'errorSummary' (if any, max 5 types):
+            - errorType: (e.g., "TCP Reset")
+            - count: (number of occurrences in sample)
+            - description: Brief explanation of what this error type means in a network context.
+            - possibleCauses: [Array of 2-3 common reasons for this error]
+            - troubleshootingSuggestions: [Array of 2-3 actionable steps to investigate or fix]
+            - relatedPacketSamples: [Array of 'no' from samplePackets that exhibit this error, if applicable and available in the summary]
         5.  List up to 5 specific, actionable findings (general security observations beyond packet errors). For each:
             - id: a unique string for this finding (e.g., "finding-dns-tunnel-01")
             - title: a short, descriptive title
@@ -432,7 +432,7 @@ console.log(`[API_ANALYZE_PCAP_V4_PER_ERROR] Error packets for AI:`, JSON.string
           "summary": "...",
           "threatLevel": "...",
           "trafficBehaviorScore": { "score": 0, "justification": "..." },
-          "detailedErrorAnalysis": [
+          "errorAnalysisReport": [ 
             { 
               "errorType": "ExampleErrorType", 
               "count": 0, 
@@ -440,12 +440,6 @@ console.log(`[API_ANALYZE_PCAP_V4_PER_ERROR] Error packets for AI:`, JSON.string
               "possibleCauses": ["...", "..."], 
               "troubleshootingSuggestions": ["...", "..."],
               "relatedPacketSamples": []
-              "packetNumber": 0,
-              "errorType": "ExampleErrorType", 
-              "packetInfoFromParser": "...",
-              "detailedExplanation": "...",
-              "probableCauseInThisContext": "...",
-              "specificActionableRecommendations": ["...", "..."]
             } 
           ],
           "findings": [ { "id": "...", "title": "...", "description": "...", "severity": "...", "confidence": 0, "recommendation": "...", "category": "...", "affectedHosts": [], "relatedPackets": [] } ],
