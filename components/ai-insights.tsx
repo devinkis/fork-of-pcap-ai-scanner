@@ -15,7 +15,7 @@ import {
   BarChart2, PieChart as PieChartIcon, Info, Maximize2, Download, 
   Share2, Printer, MessageSquare, Edit3, RefreshCw, Loader2, AlertTriangle, Siren,
   Server as ServerIcon, User as UserIcon, ArrowRight, XCircle as XCircleIcon, Zap, Mail,
-  ArrowLeftRight, Send
+  ArrowLeftRight, Send, PhoneOff // Tambahkan PhoneOff untuk VoIP
 } from 'lucide-react';
 import {
   Dialog,
@@ -38,7 +38,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { IOCList } from "@/components/ioc-list";
 
-// --- Definisi Interface (sama seperti sebelumnya) ---
+// --- Definisi Interface ---
 interface ProtocolDistribution { name: string; value: number; fill: string; }
 interface Conversation { id: string; sourceIp: string; destinationIp: string; protocol: string; packets: number; bytes: number; startTime?: string; endTime?: string; duration?: string; }
 interface AlertInfo { id: string; timestamp: string; severity: 'Low' | 'Medium' | 'High' | 'Critical'; description: string; sourceIp?: string; destinationIp?: string; protocol?: string; signature?: string; }
@@ -46,6 +46,29 @@ interface DetailedPacketInfo { id: string; timestamp: string; source: string; de
 interface IOC { type: "ip" | "domain" | "url" | "hash"; value: string; context: string; confidence: number; }
 interface ErrorAnalysisDetail { errorType: string; count: number; description: string; possibleCauses: string[]; troubleshootingSuggestions: string[]; relatedPacketSamples?: number[]; }
 interface SamplePacketForContext { no: number; timestamp: string; source: string; destination: string; protocol: string; length: number; info: string; isError?: boolean; errorType?: string; }
+
+// Tambahkan interface untuk analisis VoIP (persiapan Fitur #3)
+interface VoipCallAnalysis {
+  callId?: string;
+  caller?: string;
+  callee?: string;
+  status: 'Completed' | 'Failed' | 'Attempting' | 'No Answer' | 'Busy';
+  failureReason?: string;
+  relatedPackets?: number[];
+  duration?: string;
+  startTime?: string;
+}
+interface VoipAnalysisReport {
+  summary?: string;
+  detectedCalls?: VoipCallAnalysis[];
+  potentialIssues?: Array<{
+    issueType: string; // e.g., "OneWayAudio", "RegistrationFailure", "HighJitter"
+    description: string;
+    evidence?: string; // e.g., "Missing RTP from 1.2.3.4"
+    recommendation?: string;
+  }>;
+}
+
 
 interface AiInsightsData {
   summary?: string;
@@ -81,6 +104,7 @@ interface AiInsightsData {
   trafficBehaviorScore?: { score: number; justification: string; };
   errorAnalysisReport?: ErrorAnalysisDetail[];
   samplePacketsForContext?: SamplePacketForContext[];
+  voipAnalysisReport?: VoipAnalysisReport; // Persiapan untuk Fitur #3
 }
 
 interface AiInsightsProps {
@@ -103,56 +127,45 @@ interface TcpResetAnimationProps {
 }
 
 const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Client", serverIp = "Server", resetInitiatorIp, packetInfo, errorType }) => {
-  const [currentStep, setCurrentStep] = useState(0); // Mulai dari 0 untuk memicu useEffect pertama kali
+  const [currentStep, setCurrentStep] = useState(0); 
   const [showStepLabel, setShowStepLabel] = useState(false);
 
-  const animationSteps = React.useMemo(() => [ // Gunakan useMemo agar array tidak dibuat ulang jika props tidak berubah
-    { name: "SYN", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim SYN ke ${serverIp}` },
-    { name: "SYN-ACK", from: serverIp, to: clientIp, color: "green-500", description: `${serverIp} membalas dengan SYN-ACK ke ${clientIp}` },
-    { name: "ACK", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim ACK. Koneksi terbentuk.` },
-    { name: "RST", from: resetInitiatorIp, to: (resetInitiatorIp === clientIp ? serverIp : clientIp), color: "red-500", isReset: true, description: `Paket RST dikirim dari ${resetInitiatorIp || 'salah satu pihak'}, koneksi direset.` },
+  const animationSteps = React.useMemo(() => [ 
+    { name: "SYN", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim SYN (Synchronization) ke ${serverIp} untuk memulai koneksi.` },
+    { name: "SYN-ACK", from: serverIp, to: clientIp, color: "green-500", description: `${serverIp} merespons dengan SYN-ACK (Synchronization-Acknowledgement) ke ${clientIp}.` },
+    { name: "ACK", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim ACK (Acknowledgement). Koneksi TCP berhasil terbentuk.` },
+    { name: "RST", from: resetInitiatorIp, to: (resetInitiatorIp === clientIp ? serverIp : clientIp), color: "red-500", isReset: true, description: `Paket RST (Reset) dikirim dari ${resetInitiatorIp || 'salah satu pihak'}, mengindikasikan koneksi dihentikan secara paksa.` },
   ], [clientIp, serverIp, resetInitiatorIp]);
   
-  const stepDuration = 2500; 
-  const labelDelay = 300; 
+  const stepDuration = 3000; // Durasi per langkah animasi (ms) - lebih lambat
+  const labelDelay = 400; 
 
   useEffect(() => {
     let timeouts: NodeJS.Timeout[] = [];
-    // Hanya jalankan sequence jika currentStep adalah 0 (awal atau replay)
     if (currentStep === 0) {
       setShowStepLabel(false);
-
-      // Mulai langkah pertama setelah sedikit delay untuk memastikan UI siap
       timeouts.push(setTimeout(() => {
-        setCurrentStep(1); // Pindah ke langkah pertama
+        setCurrentStep(1);
         timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
-      }, 50)); // Delay kecil
+      }, 50)); 
 
-      // Jadwalkan langkah-langkah berikutnya
       for (let i = 1; i < animationSteps.length; i++) {
         timeouts.push(
           setTimeout(() => {
-            setCurrentStep(i + 1); // Pindah ke langkah i+1 (jadi 2, 3, 4)
+            setCurrentStep(i + 1);
             setShowStepLabel(false);
             timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
-          }, (i * stepDuration) + 50) // Waktu relatif terhadap awal replay
+          }, (i * stepDuration) + 50) 
         );
       }
-
-      // Jadwalkan status akhir (setelah semua langkah animasi)
       timeouts.push(
         setTimeout(() => {
-          setCurrentStep(animationSteps.length + 1); // Status "selesai"
-          setShowStepLabel(true); // Tampilkan pesan akhir
-        }, (animationSteps.length * stepDuration) + 500) // Sedikit lebih lama dari langkah terakhir
+          setCurrentStep(animationSteps.length + 1); 
+          setShowStepLabel(true); 
+        }, (animationSteps.length * stepDuration) + 500) 
       );
     }
-
-    return () => {
-      timeouts.forEach(clearTimeout);
-    };
-  // Perhatikan dependency array: currentStep memicu effect, 
-  // animationSteps (yang bergantung pada props IP) memastikan step didefinisikan ulang jika IP berubah.
+    return () => { timeouts.forEach(clearTimeout); };
   }, [currentStep, animationSteps, stepDuration, labelDelay]);
 
   const getIpRole = (ip: string, isInitiator: boolean, isClient: boolean) => {
@@ -164,32 +177,32 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Clien
   const currentStepDetails = currentStep > 0 && currentStep <= animationSteps.length ? animationSteps[currentStep - 1] : null;
 
   return (
-    <div className="p-4 space-y-3 min-h-[420px] flex flex-col items-center justify-between bg-slate-100 dark:bg-slate-800/60 rounded-lg border shadow-inner relative overflow-hidden">
+    <div className="p-6 space-y-4 min-h-[450px] flex flex-col items-center justify-between bg-slate-100 dark:bg-slate-800/70 rounded-xl border-2 border-slate-200 dark:border-slate-700 shadow-xl relative overflow-hidden">
       <div>
-        <p className="text-lg font-semibold text-center text-foreground mb-1">
+        <p className="text-xl font-bold text-center text-foreground mb-1.5">
           {errorType || "TCP Reset Flow"}
         </p>
-        {packetInfo && <p className="text-xs text-center text-muted-foreground mb-4">Konteks: {packetInfo}</p>}
+        {packetInfo && <p className="text-sm text-center text-muted-foreground mb-4 max-w-md">Konteks: {packetInfo}</p>}
       </div>
       
-      <div className="flex justify-around w-full items-center mb-6 px-4">
+      <div className="flex justify-around w-full items-center mb-8 px-4">
         <div className="text-center w-2/5 flex flex-col items-center">
-          <UserIcon size={48} className="text-blue-600 dark:text-blue-400 mb-1.5" />
+          <UserIcon size={52} className="text-blue-600 dark:text-blue-400 mb-2 p-2 bg-blue-100 dark:bg-blue-900/50 rounded-full shadow" />
           <p className="text-sm font-semibold truncate max-w-full" title={getIpRole(clientIp, clientIp === resetInitiatorIp, true)}>{clientIp}</p>
           <p className="text-xs text-muted-foreground">(Klien{clientIp === resetInitiatorIp ? ", Pengirim RST" : ""})</p>
         </div>
         <div className="w-1/5 flex justify-center items-center">
-            <ArrowLeftRight size={28} className="text-slate-400 dark:text-slate-500 opacity-70" />
+            <ArrowLeftRight size={32} className="text-slate-400 dark:text-slate-500 opacity-80" />
         </div> 
         <div className="text-center w-2/5 flex flex-col items-center">
-          <ServerIcon size={48} className="text-green-600 dark:text-green-400 mb-1.5" />
+          <ServerIcon size={52} className="text-green-600 dark:text-green-400 mb-2 p-2 bg-green-100 dark:bg-green-900/50 rounded-full shadow" />
           <p className="text-sm font-semibold truncate max-w-full" title={getIpRole(serverIp, serverIp === resetInitiatorIp, false)}>{serverIp}</p>
           <p className="text-xs text-muted-foreground">(Server{serverIp === resetInitiatorIp ? ", Pengirim RST" : ""})</p>
         </div>
       </div>
 
       {/* Animated Packets Area */}
-      <div className="w-full h-32 relative mb-3 border-y border-dashed border-slate-300 dark:border-slate-700 flex flex-col justify-around">
+      <div className="w-full h-36 relative mb-4 border-y-2 border-dashed border-slate-300 dark:border-slate-700 flex flex-col justify-around overflow-hidden">
         {animationSteps.map((step, index) => {
           const isActive = currentStep === index + 1;
           const isFromClient = step.from === clientIp;
@@ -199,22 +212,22 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Clien
           return (
             <div
               key={index}
-              className={`absolute top-1/2 -translate-y-1/2 w-auto flex items-center transition-opacity duration-300 ease-in-out
+              className={`absolute top-1/2 -translate-y-1/2 w-auto flex items-center transition-all duration-1000 ease-in-out
                           ${isActive ? 'opacity-100 z-10' : 'opacity-0 -z-10'}
-                          ${isActive && isFromClient ? 'animate-packet-move-right-detailed' : ''}
-                          ${isActive && !isFromClient ? 'animate-packet-move-left-detailed' : ''}
+                          ${isActive && isFromClient ? 'animate-packet-move-right-detailed-v2' : ''}
+                          ${isActive && !isFromClient ? 'animate-packet-move-left-detailed-v2' : ''}
                         `}
             >
-              <div className={`flex items-center p-2.5 rounded-lg shadow-xl text-white text-sm font-semibold ${packetBgColor}`}>
-                <Send size={18} className="mr-2" /> 
+              <div className={`flex items-center p-3 rounded-xl shadow-2xl text-white text-base font-bold ${packetBgColor}`}>
+                <Send size={20} className="mr-2.5" /> 
                 {step.name}
-                {step.isReset && <XCircleIcon size={18} className="ml-2"/>}
+                {step.isReset && <XCircleIcon size={20} className="ml-2.5"/>}
               </div>
               {isActive && (
-                <div className={`absolute -bottom-6 text-xs font-medium ${packetBaseColor} ${isFromClient ? 'left-0 text-left' : 'right-0 text-right'} whitespace-nowrap w-full px-1`}>
+                <div className={`absolute -bottom-7 text-xs font-semibold ${packetBaseColor} ${isFromClient ? 'left-0 text-left' : 'right-0 text-right'} whitespace-nowrap w-full px-1`}>
                   {isFromClient ? 
-                    <span className="flex items-center"><ArrowRight size={14} className="mr-1"/> {step.from} ke {step.to}</span> : 
-                    <span className="flex items-center justify-end">{step.to} <ArrowLeft size={14} className="mx-1"/> {step.from}</span>
+                    <span className="flex items-center"><ArrowRight size={16} className="mr-1.5"/> {step.from} <span className="mx-1 text-slate-400">→</span> {step.to}</span> : 
+                    <span className="flex items-center justify-end">{step.to} <span className="mx-1 text-slate-400">←</span> {step.from} <ArrowLeft size={16} className="ml-1.5"/></span>
                   }
                 </div>
               )}
@@ -223,51 +236,51 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Clien
         })}
       </div>
       
-      <div className="h-12 flex items-center justify-center text-center px-2">
+      <div className="h-14 flex items-center justify-center text-center px-2">
         {currentStepDetails && showStepLabel && (
-          <p className={`text-sm text-muted-foreground animate-fade-in-custom`}>
+          <p className={`text-sm text-muted-foreground animate-fade-in-custom-v2`}>
             <span className={`font-bold ${currentStepDetails.isReset ? 'text-red-600 dark:text-red-400' : currentStepDetails.color === 'blue-500' ? 'text-blue-600 dark:text-blue-400' : 'text-green-600 dark:text-green-400'}`}>{currentStepDetails.name}</span>: {currentStepDetails.description}
           </p>
         )}
         {currentStep > animationSteps.length && (
-             <div className="p-2 bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-md text-center animate-fade-in-custom">
-                <XCircleIcon className="w-5 h-5 text-red-600 dark:text-red-400 inline-block mr-1.5" />
-                <span className="text-sm text-red-700 dark:text-red-500 font-semibold">
+             <div className="p-3 bg-red-100 dark:bg-red-900/40 border-2 border-red-400 dark:border-red-600 rounded-lg text-center animate-fade-in-custom-v2 shadow-md">
+                <XCircleIcon className="w-6 h-6 text-red-600 dark:text-red-400 inline-block mr-2" />
+                <span className="text-sm text-red-700 dark:text-red-300 font-semibold align-middle">
                     Koneksi Di-reset oleh: {resetInitiatorIp || "Tidak diketahui"}
                 </span>
             </div>
         )}
       </div>
 
-      <Button variant="outline" size="sm" onClick={() => setCurrentStep(0)} className="mt-auto text-xs border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:hover:bg-slate-700">
-        <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Ulangi Animasi
+      <Button variant="outline" size="sm" onClick={() => setCurrentStep(0)} className="mt-auto text-sm border-slate-400 hover:bg-slate-200 dark:border-slate-600 dark:hover:bg-slate-700/80 shadow">
+        <RefreshCw className="mr-2 h-4 w-4" /> Ulangi Animasi
       </Button>
       
       <style jsx global>{`
-        @keyframes packet-move-right-detailed {
-          0% { left: 10%; opacity: 0; transform: translateY(-50%) scale(0.9); }
-          20% { opacity: 1; transform: translateY(-50%) scale(1); }
-          80% { opacity: 1; transform: translateY(-50%) scale(1); }
-          100% { left: calc(90% - 60px); opacity: 0; transform: translateY(-50%) scale(0.9); } /* Adjust 60px based on packet width */
+        @keyframes packet-move-right-detailed-v2 {
+          0% { left: 5%; opacity: 0; transform: translateY(-50%) scale(0.8); }
+          15% { opacity: 1; transform: translateY(-50%) scale(1); } /* Muncul lebih cepat */
+          85% { opacity: 1; transform: translateY(-50%) scale(1); } /* Diam lebih lama */
+          100% { left: calc(95% - 70px); opacity: 0; transform: translateY(-50%) scale(0.8); } /* Sesuaikan 70px dengan lebar paket Anda */
         }
         .animate-packet-move-right-detailed {
-          animation: packet-move-right-detailed ${stepDuration / 1000}s ease-in-out forwards;
+          animation: packet-move-right-detailed-v2 ${stepDuration / 1000}s ease-in-out forwards;
         }
-        @keyframes packet-move-left-detailed {
-          0% { right: 10%; opacity: 0; transform: translateY(-50%) scale(0.9); }
-          20% { opacity: 1; transform: translateY(-50%) scale(1); }
-          80% { opacity: 1; transform: translateY(-50%) scale(1); }
-          100% { right: calc(90% - 60px); opacity: 0; transform: translateY(-50%) scale(0.9); } /* Adjust 60px based on packet width */
+        @keyframes packet-move-left-detailed-v2 {
+          0% { right: 5%; opacity: 0; transform: translateY(-50%) scale(0.8); }
+          15% { opacity: 1; transform: translateY(-50%) scale(1); }
+          85% { opacity: 1; transform: translateY(-50%) scale(1); }
+          100% { right: calc(95% - 70px); opacity: 0; transform: translateY(-50%) scale(0.8); } /* Sesuaikan 70px dengan lebar paket Anda */
         }
         .animate-packet-move-left-detailed {
-          animation: packet-move-left-detailed ${stepDuration / 1000}s ease-in-out forwards;
+          animation: packet-move-left-detailed-v2 ${stepDuration / 1000}s ease-in-out forwards;
         }
-        @keyframes fade-in-custom {
-          from { opacity: 0; transform: translateY(5px); }
+        @keyframes fade-in-custom-v2 {
+          from { opacity: 0; transform: translateY(8px); }
           to { opacity: 1; transform: translateY(0px); }
         }
         .animate-fade-in-custom {
-          animation: fade-in-custom 0.5s ease-out forwards;
+          animation: fade-in-custom-v2 0.6s ease-out forwards;
         }
       `}</style>
     </div>
@@ -315,9 +328,17 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
       return;
     }
     
+    // Asumsi client adalah source dari paket sampel pertama yang terkait error
+    // Ini mungkin perlu disesuaikan jika AI memberikan info lebih spesifik
     let clientIpForAnim = relatedPacket.source;
     let serverIpForAnim = relatedPacket.destination;
+    
+    // Asumsi pengirim RST adalah source dari paket sampel yang error (jika itu paket RST)
     let resetInitiator = relatedPacket.source; 
+    // Anda bisa menambahkan logika lebih canggih di sini jika AI memberikan info siapa pengirim RST
+    // atau jika Anda ingin menentukannya berdasarkan alur paket sebelumnya.
+    // Misalnya, jika paket sebelumnya adalah SYN dari A ke B, lalu SYN-ACK dari B ke A,
+    // lalu RST dari A ke B, maka A adalah client dan pengirim RST.
 
     setAnimationData({
       type: errorDetail.errorType,
@@ -384,6 +405,10 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   <TabsTrigger value="timeline" className="flex items-center text-xs sm:text-sm"><Clock className="mr-1 sm:mr-2 h-4 w-4" />Timeline</TabsTrigger>
                   <TabsTrigger value="visuals" className="flex items-center text-xs sm:text-sm"><BarChart2 className="mr-1 sm:mr-2 h-4 w-4" />Visuals</TabsTrigger>
                   {data.performanceMetrics && <TabsTrigger value="performance" className="flex items-center text-xs sm:text-sm"><Activity className="mr-1 sm:mr-2 h-4 w-4" />Perf.</TabsTrigger>}
+                  {/* Persiapan Tab VoIP */}
+                  {data.voipAnalysisReport && (data.voipAnalysisReport.detectedCalls && data.voipAnalysisReport.detectedCalls.length > 0 || data.voipAnalysisReport.potentialIssues && data.voipAnalysisReport.potentialIssues.length > 0) && (
+                    <TabsTrigger value="voip" className="flex items-center text-xs sm:text-sm"><PhoneOff className="mr-1 sm:mr-2 h-4 w-4" />VoIP Analysis</TabsTrigger>
+                  )}
                 </TabsList>
                 <ScrollBar orientation="horizontal" />
               </ScrollArea>
@@ -477,6 +502,64 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                 <TabsContent value="timeline"><Card><CardHeader><CardTitle className="flex items-center text-lg"><Clock className="mr-2 text-fuchsia-500"/>Event Timeline</CardTitle></CardHeader><CardContent>{data.timeline&&data.timeline.length>0?(<div className="relative pl-6 space-y-6 border-l-2 border-gray-200 dark:border-gray-700">{data.timeline.map((event,index)=>(<div key={index}className="relative"><div className={`absolute -left-[calc(0.75rem+1px)] mt-1.5 flex h-6 w-6 items-center justify-center rounded-full ${event.severity==="error"?"bg-red-500":event.severity==="warning"?"bg-yellow-500":"bg-blue-500"} text-white text-xs font-semibold`}>{event.severity==="error"?<AlertCircle size={14}/>:event.severity==="warning"?<AlertTriangle size={14}/>:<Info size={14}/>}</div><div className="ml-4"><p className="font-medium text-sm">{event.event||"Unknown Event"}</p><p className="text-xs text-muted-foreground">{event.time&&!event.time.includes("Packet Sample")?new Date(event.time).toLocaleString():event.time||"N/A"}</p></div></div>))}</div>):(<p className="text-center text-gray-500 dark:text-gray-400 py-4">No timeline events provided by AI.</p>)}</CardContent></Card></TabsContent>
                 <TabsContent value="visuals"className="space-y-6">{data.protocolDistribution&&data.protocolDistribution.length>0&&(<Card><CardHeader><CardTitle className="flex items-center text-lg"><PieChartIcon className="mr-2 text-purple-500"/>Protocol Distribution</CardTitle></CardHeader><CardContent style={{width:"100%",height:300}}><ResponsiveContainer><PieChart><Pie activeIndex={activePieIndex}activeShape={renderActiveShape}data={data.protocolDistribution}cx="50%"cy="50%"innerRadius={60}outerRadius={100}fill="#8884d8"dataKey="value"onMouseEnter={onPieEnter}>{data.protocolDistribution.map((entry,index)=>(<Cell key={`cell-${index}`}fill={entry.fill||COLORS[index%COLORS.length]}/>))}</Pie><RechartsTooltip/><Legend layout="vertical"align="right"verticalAlign="middle"iconSize={10}wrapperStyle={{fontSize:"12px"}}/></PieChart></ResponsiveContainer></CardContent></Card>)} {data.statistics?.topTalkers&&data.statistics.topTalkers.length>0&&data.statistics.topTalkers[0].ip!=="No identifiable IP traffic"&&(<Card><CardHeader><CardTitle className="flex items-center text-lg"><BarChart2 className="mr-2 text-green-500"/>Top Talkers (by Packets)</CardTitle></CardHeader><CardContent style={{width:"100%",height:300}}><ResponsiveContainer><BarChart data={data.statistics.topTalkers}layout="vertical"margin={{top:5,right:30,left:20,bottom:5}}><CartesianGrid strokeDasharray="3 3"/><XAxis type="number"/><YAxis dataKey="ip"type="category"width={150}interval={0}tick={{fontSize:10}}/><RechartsTooltip/><Legend wrapperStyle={{fontSize:"12px"}}/><Bar dataKey="packets"name="Total Packets"fill="#82ca9d"/></BarChart></ResponsiveContainer></CardContent></Card>)}</TabsContent>
                 {data.performanceMetrics&&(<TabsContent value="performance"><Card><CardHeader><CardTitle className="flex items-center text-lg"><Activity className="mr-2 text-cyan-500"/>Performance</CardTitle></CardHeader><CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm md:text-base"><div><strong>Total Packets (in file):</strong> {data.performanceMetrics.totalPackets?.toLocaleString()||data.statistics?.totalPacketsInFile?.toLocaleString()||"N/A"}</div><div><strong>Total Bytes (in file):</strong> {data.performanceMetrics.totalBytes?.toLocaleString()||data.statistics?.totalBytesInFile?.toLocaleString()||"N/A"}</div><div><strong>Capture Duration:</strong> {data.performanceMetrics.captureDuration||"N/A"}</div><div><strong>Avg Packet Rate:</strong> {data.performanceMetrics.averagePacketRate||"N/A"}</div></CardContent></Card></TabsContent>)}
+                
+                {/* Persiapan Tab Konten VoIP */}
+                {data.voipAnalysisReport && (
+                  <TabsContent value="voip">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center text-lg">
+                          <PhoneOff className="mr-2 text-indigo-500" /> VoIP/Call Analysis
+                        </CardTitle>
+                        <CardDescription>
+                          {data.voipAnalysisReport.summary || "Insights into Voice over IP and call-related traffic."}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {data.voipAnalysisReport.detectedCalls && data.voipAnalysisReport.detectedCalls.length > 0 && (
+                          <div>
+                            <h4 className="font-semibold mb-2 text-base">Detected Calls:</h4>
+                            <Accordion type="multiple" className="w-full">
+                              {data.voipAnalysisReport.detectedCalls.map((call, index) => (
+                                <AccordionItem value={`call-${index}`} key={call.callId || `call-${index}`}>
+                                  <AccordionTrigger className="text-sm hover:no-underline">
+                                    Call from {call.caller || "Unknown"} to {call.callee || "Unknown"} - <Badge variant={call.status === 'Failed' ? 'destructive' : 'secondary'}>{call.status}</Badge>
+                                  </AccordionTrigger>
+                                  <AccordionContent className="text-xs space-y-1 pl-4">
+                                    {call.callId && <p><strong>Call ID:</strong> {call.callId}</p>}
+                                    {call.startTime && <p><strong>Start Time:</strong> {new Date(call.startTime).toLocaleString()}</p>}
+                                    {call.duration && <p><strong>Duration:</strong> {call.duration}</p>}
+                                    {call.failureReason && <p><strong>Failure Reason:</strong> {call.failureReason}</p>}
+                                    {call.relatedPackets && call.relatedPackets.length > 0 && <p><strong>Related Packets (No.):</strong> {call.relatedPackets.join(', ')}</p>}
+                                  </AccordionContent>
+                                </AccordionItem>
+                              ))}
+                            </Accordion>
+                          </div>
+                        )}
+                        {data.voipAnalysisReport.potentialIssues && data.voipAnalysisReport.potentialIssues.length > 0 && (
+                           <div>
+                            <h4 className="font-semibold mt-4 mb-2 text-base">Potential VoIP Issues:</h4>
+                             <ul className="list-disc pl-5 space-y-2 text-sm">
+                              {data.voipAnalysisReport.potentialIssues.map((issue, index) => (
+                                <li key={index}>
+                                  <strong>{issue.issueType}:</strong> {issue.description}
+                                  {issue.evidence && <em className="block text-xs text-muted-foreground">Evidence: {issue.evidence}</em>}
+                                  {issue.recommendation && <p className="text-xs mt-0.5">Recommendation: {issue.recommendation}</p>}
+                                </li>
+                              ))}
+                            </ul>
+                           </div>
+                        )}
+                         {(!data.voipAnalysisReport.detectedCalls || data.voipAnalysisReport.detectedCalls.length === 0) && 
+                          (!data.voipAnalysisReport.potentialIssues || data.voipAnalysisReport.potentialIssues.length === 0) && (
+                            <p className="text-sm text-muted-foreground">No specific VoIP call details or issues were highlighted by the AI.</p>
+                         )}
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                )}
+
               </div>
             </Tabs>
           </CardContent>
