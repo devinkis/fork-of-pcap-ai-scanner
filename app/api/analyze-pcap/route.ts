@@ -7,46 +7,32 @@ const PcapParser = require('pcap-parser');
 const PCAPNGParser = require('pcap-ng-parser');
 import { Readable } from 'stream';
 
-const MAX_SAMPLES_FOR_AI = 1000; // Jumlah sampel paket untuk dikirim ke AI
-const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; // Batas pemrosesan paket untuk statistik umum
+const MAX_SAMPLES_FOR_AI = 15; 
+const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; 
 
 // --- Fungsi Helper Timestamp ---
 function getTimestamp(packetHeader: any, isPcapNg: boolean = false, pcapNgPacket?: any, ifaceInfo?: any): string {
     if (isPcapNg && pcapNgPacket) {
         let timestampDate;
-        // tsresol: log base 10 of the resolution. Default 6 means microseconds.
-        // if_tsresol option in pcapng Interface Description Block.
-        // Bit 7 indicates if it's negative power of 10 (most common) or power of 2.
         const tsresolRaw = ifaceInfo?.tsresol !== undefined ? Number(ifaceInfo.tsresol) : 6;
-        const isPowerOf2 = (tsresolRaw & 0x80) !== 0; // Check MSB
-        const tsresolValue = tsresolRaw & 0x7F; // Actual resolution value
+        const isPowerOf2 = (tsresolRaw & 0x80) !== 0; 
+        const tsresolValue = tsresolRaw & 0x7F; 
 
         let divisorBigInt: BigInt;
         if (isPowerOf2) {
-            // For power of 2, resolution is 2^(-tsresolValue). To get to milliseconds (10^-3):
-            // We need to convert timestamp (units of 2^-tsresolValue seconds) to milliseconds.
-            // timestamp_units * (2^-tsresolValue seconds/unit) * (1000 ms/second)
-            // = timestamp_units * 1000 / (2^tsresolValue)
-            // This can be complex with BigInt if not careful with floating points.
-            // Simpler: convert to a common base like nanoseconds first if tsresolValue is high.
-            // For now, let's assume common case is power of 10.
             console.warn(`[AI_TIMESTAMP_CONV] Power-of-2 tsresol (${tsresolValue}) not fully implemented for precise BigInt conversion to ms. Defaulting to microsecond logic.`);
-            divisorBigInt = BigInt(10 ** (6 - 3)); // Fallback to microsecond logic
+            divisorBigInt = BigInt(10 ** (6 - 3)); 
         } else {
-             // Power of 10, resolution is 10^(-tsresolValue) seconds.
-             // To convert to milliseconds (10^-3 seconds):
-             // timestamp_units * (10^-tsresolValue seconds/unit) * (1000 ms/second)
-             // = timestamp_units / (10^(tsresolValue - 3))
             divisorBigInt = BigInt(10 ** (Math.max(0, tsresolValue - 3)));
         }
 
         const timestampBigInt = (BigInt(pcapNgPacket.timestampHigh) << 32n) | BigInt(pcapNgPacket.timestampLow);
         try {
-            if (tsresolValue < 3 && !isPowerOf2) { // e.g., seconds, deciseconds, centiseconds (powers of 10)
+            if (tsresolValue < 3 && !isPowerOf2) { 
                 const multiplier = BigInt(10 ** (3 - tsresolValue));
                 timestampDate = new Date(Number(timestampBigInt * multiplier));
-            } else { // e.g., milliseconds, microseconds, nanoseconds etc. (powers of 10)
-                if (divisorBigInt === 0n) divisorBigInt = 1n; // Avoid division by zero
+            } else { 
+                if (divisorBigInt === 0n) divisorBigInt = 1n; 
                 const milliseconds = timestampBigInt / divisorBigInt;
                 timestampDate = new Date(Number(milliseconds));
             }
@@ -55,14 +41,14 @@ function getTimestamp(packetHeader: any, isPcapNg: boolean = false, pcapNgPacket
             timestampDate = new Date();
         }
 
-        if (pcapNgPacket.timestampSeconds !== undefined && (pcapNgPacket.timestampHigh === undefined || pcapNgPacket.timestampLow === undefined)) { // Fallback for PacketBlock in pcapng
+        if (pcapNgPacket.timestampSeconds !== undefined && (pcapNgPacket.timestampHigh === undefined || pcapNgPacket.timestampLow === undefined)) { 
             timestampDate = new Date(pcapNgPacket.timestampSeconds * 1000 + (pcapNgPacket.timestampMicroseconds || 0) / 1000);
-        } else if (!timestampDate) { // Final fallback
+        } else if (!timestampDate) { 
             timestampDate = new Date();
             console.warn(`[AI_TIMESTAMP_CONV] Final fallback timestamp for pcapng packet`);
         }
         return timestampDate.toISOString();
-    } else { // For pcap-parser (legacy .pcap)
+    } else { 
         return new Date(packetHeader.timestampSeconds * 1000 + packetHeader.timestampMicroseconds / 1000).toISOString();
     }
 }
@@ -142,7 +128,7 @@ async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: strin
                                 if (flagsByte & 0x02) flags.push("SYN");
                                 if (flagsByte & 0x01) flags.push("FIN");
                                 if (flagsByte & 0x10) flags.push("ACK");
-                                // Add other flags if needed for info string
+                                
                                 const srcPort = packet.data.readUInt16BE(currentOffset);
                                 const dstPort = packet.data.readUInt16BE(currentOffset + 2);
                                 info = `${srcPort} → ${dstPort} [${flags.join(',')}] ${info.replace(`IPv4 ${sourceIp} -> ${destIp} TCP`, '')}`.trim();
@@ -484,9 +470,7 @@ export async function POST(request: NextRequest) {
         fileName: dataForAI.fileName,
         fileSize: dataForAI.fileSize,
         uploadDate: pcapRecord.createdAt.toISOString(),
-        // Menyertakan samplePacketsForContext agar frontend bisa menggunakannya untuk animasi
         samplePacketsForContext: dataForAI.samplePackets, 
-        // Jika AI tidak selalu mengembalikan statistics, kita bisa fallback ke data asli
         statistics: aiAnalysis.statistics || dataForAI.statistics,
       }
     });
@@ -504,28 +488,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: errorMessage, details: error instanceof Error ? error.stack : "No stack" }, { status: 500 });
   }
 }
-```
-
-**Perubahan Utama pada `/app/api/analyze-pcap/route.ts`:**
-
-1.  **Struktur `getTimestamp`**: Fungsi `getTimestamp` disesuaikan agar bisa menerima argumen untuk membedakan antara parsing `.pcap` dan `.pcapng`, terutama untuk menangani `timestampHigh`, `timestampLow`, dan `tsresol` dari `pcap-ng-parser`.
-2.  **`parsePcapForAIWithOriginalParser`**:
-    * Logika decoding paket di dalamnya sekarang lebih detail dan mencoba mengisi `isError` dan `errorType` untuk kondisi seperti TCP Reset atau header terpotong. **Anda harus memverifikasi dan menyesuaikan ini dengan logika decoding `.pcap` Anda yang sudah terbukti benar.**
-    * Menambahkan `isError` dan `errorType` ke objek paket yang disimpan di `samplePacketsForAI`.
-3.  **`parsePcapFileForAIWithPcapNgParser`**:
-    * Menggunakan `getTimestamp` dengan flag `isPcapNg = true`.
-    * Mengambil `ifaceInfo.tsresol` dari `currentInterfaceInfo` untuk akurasi timestamp.
-    * Logika decoding paket di dalamnya juga sekarang lebih detail dan mencoba mengisi `isError` dan `errorType`. **Anda juga harus memverifikasi dan menyesuaikan ini.**
-    * Menambahkan `isError` dan `errorType` ke objek paket yang disimpan di `samplePacketsForAI`.
-4.  **Agregasi `errorSummaryForAI`**: Di dalam fungsi `POST` utama, setelah data dari parser didapatkan, `errorSummaryForAI` dibuat dengan menghitung `errorType` dari `extractedPcapData.samplePackets`.
-5.  **Prompt AI Diperbarui**:
-    * Sekarang menyertakan `errorSummary` sebagai input.
-    * Secara eksplisit meminta AI untuk menghasilkan `errorAnalysisReport` dengan format yang ditentukan (errorType, count, description, possibleCauses, troubleshootingSuggestions, relatedPacketSamples).
-6.  **Respons JSON ke Frontend**:
-    * Memastikan `samplePacketsForContext: dataForAI.samplePackets` ditambahkan ke objek `analysis` yang dikirim kembali. Ini penting agar frontend memiliki detail paket sampel yang bisa digunakan untuk visualisasi error.
-    * Menambahkan fallback untuk `statistics` jika AI tidak mengembalikannya.
-
-**PENTING SEKALI (Pengulangan):**
-* **Logika Decoding di Fungsi Parser AI**: Anda **HARUS** mereview dengan sangat teliti dan menyesuaikan blok kode decoding di dalam `parser.on('packet', ...)` pada `parsePcapForAIWithOriginalParser` dan `parser.on('data', ...)` pada `parsePcapFileForAIWithPcapNgParser`. Pastikan logika tersebut mengekstrak informasi header dengan benar dan, yang paling penting, **mengisi variabel `isError` dan `errorType` secara akurat** berdasarkan kondisi yang Anda anggap sebagai error (misalnya, flag TCP RST, header yang tidak lengkap, checksum yang salah jika Anda memeriksanya, dll.). Akurasi `errorSummaryForAI` sangat bergantung pada ini.
-
-Setelah Anda menerapkan dan memverifikasi kode ini, dan melakukan deploy, frontend (`components/ai-insights.tsx`) yang telah kita siapkan seharusnya bisa menampilkan "Detailed Error Analysis" berdasarkan output
