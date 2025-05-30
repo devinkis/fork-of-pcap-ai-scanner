@@ -15,7 +15,7 @@ import {
   BarChart2, PieChart as PieChartIcon, Info, Maximize2, Download, 
   Share2, Printer, MessageSquare, Edit3, RefreshCw, Loader2, AlertTriangle, Siren,
   Server as ServerIcon, User as UserIcon, ArrowRight, XCircle as XCircleIcon, Zap, Mail,
-  ArrowLeftRight, Send, PhoneOff, ArrowLeft, PhoneCall, PhoneIncoming, PhoneOutgoing
+  ArrowLeftRight, Send, PhoneOff, ArrowLeft
 } from 'lucide-react';
 import {
   Dialog,
@@ -43,35 +43,47 @@ interface ProtocolDistribution { name: string; value: number; fill: string; }
 interface Conversation { id: string; sourceIp: string; destinationIp: string; protocol: string; packets: number; bytes: number; startTime?: string; endTime?: string; duration?: string; }
 interface AlertInfo { id: string; timestamp: string; severity: 'Low' | 'Medium' | 'High' | 'Critical'; description: string; sourceIp?: string; destinationIp?: string; protocol?: string; signature?: string; }
 interface DetailedPacketInfo { id: string; timestamp: string; source: string; destination: string; protocol: string; length: number; summary: string; payload?: string; }
-interface IOC { type: "ip" | "domain" | "url" | "hash" | "port"; value: string; context: string; confidence: number; } // Tambahkan "port"
+interface IOC { type: "ip" | "domain" | "url" | "hash" | "port"; value: string; context: string; confidence: number; }
 
 // Struktur untuk analisis error per instance dari AI (sesuai ai.txt)
 interface DetailedErrorInstance {
-  packetNumber: number;
+  packetNumber?: number; 
   errorType: string;
-  packetInfoFromParser: string; 
-  detailedExplanation: string; 
-  probableCauseInThisContext: string; 
-  specificActionableRecommendations: string[]; 
+  packetInfoFromParser?: string; 
+  detailedExplanation?: string; 
+  probableCauseInThisContext?: string; 
+  specificActionableRecommendations?: string[]; 
   // relatedPacketSamples tidak ada di ai.txt untuk detailedErrorAnalysis, jadi opsional
+  // Jika AI mengirimkannya, kita bisa uncomment:
+  // relatedPacketSamples?: number[]; 
+}
+
+// Struktur untuk laporan error agregat (jika backend fallback ke ini)
+interface AggregatedErrorReportItem { 
+  errorType: string; 
+  count: number; 
+  description: string; 
+  possibleCauses: string[]; 
+  troubleshootingSuggestions: string[]; 
   relatedPacketSamples?: number[]; 
 }
+
 
 interface SamplePacketForContext { no: number; timestamp: string; source: string; destination: string; sourcePort?: number; destPort?: number; protocol: string; length: number; info: string; isError?: boolean; errorType?: string; payloadHexSample?: string;}
 
 interface VoipCallAnalysis {
   callId?: string;
-  callerIp?: string; // Sesuai ai.txt
-  callerPort?: number; // Sesuai ai.txt
-  calleeIp?: string; // Sesuai ai.txt
-  calleePort?: number; // Sesuai ai.txt
-  status: 'Completed' | 'Failed' | 'Attempting' | 'No Answer' | 'Busy' | 'Ringing' | 'InProgress' | 'Unknown' | string; // Tambahkan string untuk fleksibilitas
+  callerIp?: string; 
+  callerPort?: number; 
+  calleeIp?: string; 
+  calleePort?: number; 
+  status?: 'Completed' | 'Failed' | 'Attempting' | 'No Answer' | 'Busy' | 'Ringing' | 'InProgress' | 'Unknown' | string; 
   failureReason?: string;
   relatedPacketNumbers?: number[];
-  duration?: string | number; // Bisa string atau number
+  duration?: string | number; 
   startTime?: string;
-  endTime?: string; // Tambahkan endTime
-  protocol?: 'SIP' | 'SCCP' | 'H323' | 'RTP' | 'RTCP' | 'UDP' | 'TCP' | 'Unknown' | string; // Tambahkan string
+  endTime?: string; 
+  protocol?: 'SIP' | 'SCCP' | 'H323' | 'RTP' | 'RTCP' | 'UDP' | 'TCP' | 'Unknown' | string; 
   qualityMetrics?: { jitter?: string; packetLoss?: string; mos?: number };
 }
 interface VoipPotentialIssue {
@@ -79,7 +91,7 @@ interface VoipPotentialIssue {
     description: string;
     evidence?: string; 
     recommendation?: string;
-    severity?: 'Low' | 'Medium' | 'High' | string; // Tambahkan string
+    severity?: 'Low' | 'Medium' | 'High' | string; 
 }
 interface VoipCucmAnalysis {
     registrationIssues?: string[];
@@ -87,10 +99,10 @@ interface VoipCucmAnalysis {
     commonCUCMProblemsObserved?: string;
 }
 interface VoipAnalysisReport {
-  voipSummary?: string; // Sesuai ai.txt
-  detectedCalls?: VoipCallAnalysis[]; // Sesuai ai.txt
-  potentialVoipIssues?: VoipPotentialIssue[]; // Sesuai ai.txt
-  cucmSpecificAnalysis?: VoipCucmAnalysis; // Sesuai ai.txt
+  voipSummary?: string; 
+  detectedCalls?: VoipCallAnalysis[]; 
+  potentialVoipIssues?: VoipPotentialIssue[]; 
+  cucmSpecificAnalysis?: VoipCucmAnalysis; 
 }
 
 
@@ -98,7 +110,8 @@ interface AiInsightsData {
   summary?: string;
   threatLevel?: string;
   trafficBehaviorScore?: { score: number; justification: string; };
-  detailedErrorAnalysis?: DetailedErrorInstance[]; // Menggunakan nama dan struktur baru
+  detailedErrorAnalysis?: DetailedErrorInstance[]; 
+  errorAnalysisReport?: AggregatedErrorReportItem[]; // Struktur lama untuk fallback
   voipAnalysisReport?: VoipAnalysisReport; 
   findings?: Array<{ id?: string; title?: string; description?: string; severity?: string; confidence?: number; recommendation?: string; category?: string; affectedHosts?: string[]; relatedPacketSamples?: number[]; }>;
   iocs?: IOC[];
@@ -106,15 +119,11 @@ interface AiInsightsData {
   recommendations?: Array<{ title?: string; description?: string; priority?: string; }>;
   timeline?: Array<{ time?: string; event?: string; severity?: string; }>;
   
-  // Field-field ini mungkin tidak lagi dikirim langsung jika sudah ada di 'statistics' dari AI
-  protocolDistribution?: ProtocolDistribution[];
-  topConversations?: Conversation[];
-  // ... field lain yang mungkin masih relevan dari definisi lama
   fileName?: string;
-  fileSize?: string | number; // Bisa number dari parser, string dari AI
+  fileSize?: string | number; 
   uploadDate?: string;
-  samplePacketsForContext?: SamplePacketForContext[]; // Tetap dibutuhkan untuk animasi
-  status?: 'Pending' | 'Processing' | 'Completed' | 'Error' | 'UNKNOWN'; // Untuk status loading/fetch
+  samplePacketsForContext?: SamplePacketForContext[]; 
+  status?: 'Pending' | 'Processing' | 'Completed' | 'Error' | 'UNKNOWN'; 
 }
 
 interface AiInsightsProps {
@@ -127,7 +136,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82Ca9D'
 const getStatusVariant = (status?: string): "default" | "secondary" | "destructive" | "outline" => { switch(status?.toLowerCase()){case"completed":return"default";case"processing":case"pending":return"secondary";case"error":return"destructive";default:return"outline"}};
 const renderActiveShape = (props: any) => { const RADIAN=Math.PI/180;const{cx,cy,midAngle,innerRadius,outerRadius,startAngle,endAngle,fill,payload,percent,value}=props;const sin=Math.sin(-RADIAN*midAngle);const cos=Math.cos(-RADIAN*midAngle);const sx=cx+(outerRadius+10)*cos;const sy=cy+(outerRadius+10)*sin;const mx=cx+(outerRadius+30)*cos;const my=cy+(outerRadius+30)*sin;const ex=mx+(cos>=0?1:-1)*22;const ey=my;const textAnchor=cos>=0?"start":"end";return(<g><text x={cx}y={cy}dy={8}textAnchor="middle"fill={fill}>{payload.name}</text><Sector cx={cx}cy={cy}innerRadius={innerRadius}outerRadius={outerRadius}startAngle={startAngle}endAngle={endAngle}fill={fill}/><Sector cx={cx}cy={cy}startAngle={startAngle}endAngle={endAngle}innerRadius={outerRadius+6}outerRadius={outerRadius+10}fill={fill}/><path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`}stroke={fill}fill="none"/><circle cx={ex}cy={ey}r={2}fill={fill}stroke="none"/><text x={ex+(cos>=0?1:-1)*12}y={ey}textAnchor={textAnchor}fill="#333">{`${value}`}</text><text x={ex+(cos>=0?1:-1)*12}y={ey}dy={18}textAnchor={textAnchor}fill="#999">{`(Rate ${(percent*100).toFixed(2)}%)`}</text></g>)};
 
-// --- Komponen Animasi TCP Reset (dari versi sebelumnya yang sudah baik) ---
+// --- Komponen Animasi TCP Reset ---
 interface TcpResetAnimationProps {
   clientIp?: string;
   serverIp?: string;
@@ -162,31 +171,30 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
 
   useEffect(() => {
     let timeouts: NodeJS.Timeout[] = [];
-    setCurrentStep(0);
+    setCurrentStep(0); 
     setShowStepLabel(false);
 
     timeouts.push(setTimeout(() => {
-      setCurrentStep(s => s === 0 ? 1 : s); 
-      timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
+      if (document.getElementById(`tcp-anim-wrapper-${animationKey}`)) { 
+        setCurrentStep(1); 
+        timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
+      }
     }, 100)); 
 
     for (let i = 1; i < animationSteps.length; i++) {
       timeouts.push(
         setTimeout(() => {
-          setCurrentStep(prevStep => {
-            if (document.getElementById(`tcp-anim-${animationKey}`)) { 
-                 return i + 1;
-            }
-            return prevStep;
-          });
-          setShowStepLabel(false); 
-          timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay)); 
+          if (document.getElementById(`tcp-anim-wrapper-${animationKey}`)) {
+            setCurrentStep(prevStep => (prevStep === i ? i + 1 : prevStep));
+            setShowStepLabel(false); 
+            timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay)); 
+          }
         }, (i * stepDuration) + 100) 
       );
     }
     timeouts.push(
       setTimeout(() => {
-        if (document.getElementById(`tcp-anim-${animationKey}`)) {
+        if (document.getElementById(`tcp-anim-wrapper-${animationKey}`)) {
             setCurrentStep(animationSteps.length + 1); 
             setShowStepLabel(true); 
         }
@@ -194,7 +202,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
     );
     
     return () => { timeouts.forEach(clearTimeout); };
-  }, [animationKey, animationSteps, stepDuration, labelDelay]);
+  }, [animationKey, animationSteps, stepDuration, labelDelay]); 
 
   const getIpRole = (ip: string | undefined, isInitiator: boolean | undefined, isClient: boolean) => {
     let role = isClient ? "Klien" : "Server";
@@ -205,7 +213,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
   const currentStepDetails = currentStep > 0 && currentStep <= animationSteps.length ? animationSteps[currentStep - 1] : null;
 
   return (
-    <div id={`tcp-anim-${animationKey}`} className="p-6 space-y-4 min-h-[480px] flex flex-col items-center justify-between bg-slate-100 dark:bg-slate-800/70 rounded-xl border-2 border-slate-200 dark:border-slate-700 shadow-xl relative overflow-hidden">
+    <div id={`tcp-anim-wrapper-${animationKey}`} className="p-6 space-y-4 min-h-[480px] flex flex-col items-center justify-between bg-slate-100 dark:bg-slate-800/70 rounded-xl border-2 border-slate-200 dark:border-slate-700 shadow-xl relative overflow-hidden">
       <div>
         <p className="text-xl font-bold text-center text-foreground mb-1.5">
           {errorType || "TCP Reset Flow"}
@@ -335,7 +343,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   } | null>(null);
   const [animationComponentKey, setAnimationComponentKey] = useState(0); 
 
-  const fetchData = useCallback(async (isRetry = false) => { if(!isRetry)setIsLoading(true);setError(null);console.log(`[AI_INSIGHTS] Fetching AI analysis data for ID: ${analysisId}`);try{const response=await fetch("/api/analyze-pcap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({analysisId:analysisId}),});const result=await response.json();if(!response.ok)throw new Error(result.error||result.message||`HTTP error! status: ${response.status}`);if(result&&result.success&&result.analysis){const analysisData=result.analysis;setData(prevData=>({fileName:prevData?.fileName||analysisData.fileName||initialServerData?.fileName,fileSize:prevData?.fileSize||analysisData.fileSize||initialServerData?.fileSize,uploadDate:prevData?.uploadDate||analysisData.uploadDate||initialServerData?.uploadDate,...analysisData,status:"Completed",analystNotes:analysisData.analystNotes||prevData?.analystNotes||initialServerData?.analystNotes||"",samplePacketsForContext: analysisData.samplePacketsForContext || prevData?.samplePacketsForContext || initialServerData?.samplePacketsForContext || []}));setAnalystNotes(analysisData.analystNotes||data?.analystNotes||initialServerData?.analystNotes||"");}else{throw new Error(result.error||"Received unexpected data structure from AI analysis API.");}}catch(err:any){console.error("[AI_INSIGHTS] Error in fetchData:",err);setError(err.message||"An unknown error occurred while fetching AI analysis.");setData(prevData=>({...prevData,status:"Error"}as AiInsightsData));}finally{setIsLoading(false);}}, [analysisId, data?.analystNotes, initialServerData]);
+  const fetchData = useCallback(async (isRetry = false) => { if(!isRetry)setIsLoading(true);setError(null);console.log(`[AI_INSIGHTS] Fetching AI analysis data for ID: ${analysisId}`);try{const response=await fetch("/api/analyze-pcap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({analysisId:analysisId}),});const result=await response.json();if(!response.ok)throw new Error(result.error||result.message||`HTTP error! status: ${response.status}`);if(result&&result.success&&result.analysis){const analysisData=result.analysis;console.log("[AI_INSIGHTS] Received data from API:", analysisData); setData(prevData=>({fileName:prevData?.fileName||analysisData.fileName||initialServerData?.fileName,fileSize:prevData?.fileSize||analysisData.fileSize||initialServerData?.fileSize,uploadDate:prevData?.uploadDate||analysisData.uploadDate||initialServerData?.uploadDate,...analysisData,status:"Completed",analystNotes:analysisData.analystNotes||prevData?.analystNotes||initialServerData?.analystNotes||"",samplePacketsForContext: analysisData.samplePacketsForContext || prevData?.samplePacketsForContext || initialServerData?.samplePacketsForContext || []}));setAnalystNotes(analysisData.analystNotes||data?.analystNotes||initialServerData?.analystNotes||"");}else{throw new Error(result.error||"Received unexpected data structure from AI analysis API.");}}catch(err:any){console.error("[AI_INSIGHTS] Error in fetchData:",err);setError(err.message||"An unknown error occurred while fetching AI analysis.");setData(prevData=>({...prevData,status:"Error"}as AiInsightsData));}finally{setIsLoading(false);}}, [analysisId, data?.analystNotes, initialServerData]);
   useEffect(() => { if(initialServerData&&!initialError){setData(initialServerData);setAnalystNotes(initialServerData.analystNotes||"");setIsLoading(false);}else if(initialError){setError(initialError);setIsLoading(false);}else if(!data&&analysisId&&isLoading){fetchData();}else if(data&&!isLoading){/* Data already loaded or no fetch needed initially */}}, [analysisId, initialServerData, initialError, data, isLoading, fetchData]);
   const onPieEnter = useCallback((_: any, index: number) => setActivePieIndex(index), []);
   const handleSaveNotes = async () => { setIsSavingNotes(true);setError(null);try{const response=await fetch(`/api/analysis/${analysisId}/notes`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({notes:analystNotes}),});if(!response.ok){const errorData=await response.json().catch(()=>({message:"Failed to save notes"}));throw new Error(errorData.message||"Failed to save notes");}const saveData=await response.json();console.log("Notes saved successfully:",saveData);setData(prevData=>prevData?{...prevData,analystNotes:analystNotes}:null);alert("Notes saved!");}catch(err:any){console.error("Error saving notes:",err);setError(`Failed to save notes: ${err.message}`);}finally{setIsSavingNotes(false);}};
@@ -343,37 +351,38 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   const handleShare = () => { if(navigator.share){navigator.share({title:`PCAP Analysis: ${data?.fileName||analysisId}`,text:`Check out the AI-driven analysis for this PCAP file: ${data?.summary||"No summary available."}`,url:window.location.href,}).then(()=>console.log("Successful share")).catch((error)=>console.log("Error sharing",error));}else{navigator.clipboard.writeText(window.location.href).then(()=>alert("Link copied to clipboard!")).catch(()=>alert("Could not copy link."));}};
   const handlePrint = () => { window.print(); };
 
-  const handleVisualizeError = (errorItem: ErrorReportItem) => { 
+  const handleVisualizeError = (errorItem: DetailedErrorInstance | AggregatedErrorReportItem) => { 
     let targetPacket: SamplePacketForContext | undefined;
+    let packetNumberToFind: number | undefined = (errorItem as DetailedErrorInstance).packetNumber;
 
-    if (errorItem.packetNumber && data?.samplePacketsForContext) {
-        targetPacket = data.samplePacketsForContext.find(p => p.no === errorItem.packetNumber);
-    } 
-    else if (errorItem.relatedPacketSamples && errorItem.relatedPacketSamples.length > 0 && data?.samplePacketsForContext) {
-        const firstPacketNo = errorItem.relatedPacketSamples[0];
-        targetPacket = data.samplePacketsForContext.find(p => p.no === firstPacketNo);
+    if (!packetNumberToFind && (errorItem as AggregatedErrorReportItem).relatedPacketSamples && (errorItem as AggregatedErrorReportItem).relatedPacketSamples!.length > 0) {
+        packetNumberToFind = (errorItem as AggregatedErrorReportItem).relatedPacketSamples![0];
+    }
+
+    if (packetNumberToFind && data?.samplePacketsForContext) {
+        targetPacket = data.samplePacketsForContext.find(p => p.no === packetNumberToFind);
     }
 
     if (targetPacket) {
         console.log("[handleVisualizeError] Target packet for animation:", targetPacket); 
         setAnimationData({
             type: errorItem.errorType,
-            clientIp: targetPacket.source || "Unknown Client", 
-            serverIp: targetPacket.destination || "Unknown Server", 
+            clientIp: targetPacket.source || "IP Klien?", 
+            serverIp: targetPacket.destination || "IP Server?", 
             packetNo: targetPacket.no,
             packetInfo: targetPacket.info,
-            resetInitiatorIp: targetPacket.source // Asumsi default, bisa disesuaikan
+            resetInitiatorIp: targetPacket.source 
         });
-        setAnimationComponentKey(prev => prev + 1); // Ini akan memicu re-render & reset animasi
+        setAnimationComponentKey(prev => prev + 1); 
         setAnimationModalOpen(true);
     } else {
-        console.warn("[handleVisualizeError] Could not find target packet for animation. ErrorItem:", errorItem, "SamplePackets:", data?.samplePacketsForContext);
+        console.warn("[handleVisualizeError] Could not find target packet. ErrorItem:", errorItem, "SamplePackets:", data?.samplePacketsForContext);
         alert("No specific packet context available to visualize this error flow accurately.");
     }
   };
 
   const handleReplayAnimationInModal = () => {
-    setAnimationComponentKey(prev => prev + 1); // Ini akan memicu re-render & reset animasi
+    setAnimationComponentKey(prev => prev + 1); 
   };
 
 
@@ -381,7 +390,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   if (error && !isLoading && (!data || data.status === 'Error')) { return(<Alert variant="destructive"className="max-w-2xl mx-auto my-8"><AlertCircle className="h-4 w-4"/><AlertTitle>Error Fetching Analysis</AlertTitle><AlertDescription><p>{error}</p><p>Analysis ID: {analysisId}</p><Button onClick={()=>fetchData(true)}variant="outline"className="mt-4"disabled={isLoading}><RefreshCw className="mr-2 h-4 w-4"/>{isLoading?"Retrying...":"Try Again"}</Button></AlertDescription></Alert>); }
   if (!data && !isLoading) { return(<Alert className="max-w-2xl mx-auto my-8"><Info className="h-4 w-4"/><AlertTitle>No AI Insights Available</AlertTitle><AlertDescription><p>AI insights could not be loaded for analysis ID: {analysisId}. The analysis might still be processing or an issue occurred.</p><Button onClick={()=>fetchData(true)}variant="outline"className="mt-4"disabled={isLoading}><RefreshCw className="mr-2 h-4 w-4"/>{isLoading?"Refreshing...":"Refresh"}</Button></AlertDescription></Alert>); }
   
-  // Sesuaikan errorReportToDisplay tergantung pada struktur yang dikembalikan AI
+  // Pilih error report yang akan ditampilkan berdasarkan apakah backend sudah diupdate
   const errorReportToDisplay = data.detailedErrorAnalysis || data.errorAnalysisReport || [];
 
 
@@ -434,7 +443,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   <TabsTrigger value="timeline" className="flex items-center text-xs sm:text-sm"><Clock className="mr-1 sm:mr-2 h-4 w-4" />Timeline</TabsTrigger>
                   <TabsTrigger value="visuals" className="flex items-center text-xs sm:text-sm"><BarChart2 className="mr-1 sm:mr-2 h-4 w-4" />Visuals</TabsTrigger>
                   {data.performanceMetrics && <TabsTrigger value="performance" className="flex items-center text-xs sm:text-sm"><Activity className="mr-1 sm:mr-2 h-4 w-4" />Perf.</TabsTrigger>}
-                  {data.voipAnalysisReport && (data.voipAnalysisReport.detectedCalls && data.voipAnalysisReport.detectedCalls.length > 0 || data.voipAnalysisReport.potentialIssues && data.voipAnalysisReport.potentialIssues.length > 0) && (
+                  {data.voipAnalysisReport && ((data.voipAnalysisReport.detectedCalls?.length ?? 0) > 0 || (data.voipAnalysisReport.potentialVoipIssues?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis && ((data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved && data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A")))) && (
                     <TabsTrigger value="voip" className="flex items-center text-xs sm:text-sm"><PhoneOff className="mr-1 sm:mr-2 h-4 w-4" />VoIP Analysis</TabsTrigger>
                   )}
                 </TabsList>
@@ -448,7 +457,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
 
                 <TabsContent value="errors_threats">
                   <div className="space-y-6">
-                    {errorReportToDisplay && errorReportToDisplay.length > 0 ? (
+                    {(errorReportToDisplay?.length ?? 0) > 0 ? (
                       <Card>
                         <CardHeader>
                           <CardTitle className="flex items-center text-lg">
@@ -468,31 +477,31 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                                 </AccordionTrigger>
                                 <AccordionContent className="pt-2 pb-4 px-1 space-y-3 text-sm">
                                   {errorItem.packetInfoFromParser && <p><strong>Parser Info:</strong> {errorItem.packetInfoFromParser}</p>}
-                                  <p><strong>Description:</strong> {errorItem.description || "N/A"}</p>
-                                  {errorItem.detailedExplanation && <p><strong>Detailed Explanation:</strong> {errorItem.detailedExplanation}</p>}
-                                  {errorItem.probableCauseInThisContext && <p><strong>Probable Cause:</strong> {errorItem.probableCauseInThisContext}</p>}
+                                  {/* Menampilkan description jika ada (untuk format agregat lama) atau detailedExplanation (format baru) */}
+                                  <p><strong>Description:</strong> {errorItem.detailedExplanation || errorItem.description || "N/A"}</p>
+                                  {errorItem.probableCauseInThisContext && <p><strong>Probable Cause (Specific):</strong> {errorItem.probableCauseInThisContext}</p>}
                                   
-                                  {errorItem.possibleCauses && errorItem.possibleCauses.length > 0 && (
+                                  {(errorItem.possibleCauses?.length ?? 0) > 0 && (
                                     <div>
                                       <h4 className="font-semibold mb-1">Possible General Causes:</h4>
                                       <ul className="list-disc pl-5 space-y-0.5 text-xs">
-                                        {errorItem.possibleCauses.map((cause, i) => <li key={i}>{cause}</li>)}
+                                        {(errorItem.possibleCauses || []).map((cause, i) => <li key={i}>{cause}</li>)}
                                       </ul>
                                     </div>
                                   )}
-                                  {errorItem.troubleshootingSuggestions && errorItem.troubleshootingSuggestions.length > 0 && (
+                                  {(errorItem.troubleshootingSuggestions?.length ?? 0) > 0 && (
                                     <div>
                                       <h4 className="font-semibold mb-1">General Troubleshooting:</h4>
                                       <ul className="list-disc pl-5 space-y-0.5 text-xs">
-                                        {errorItem.troubleshootingSuggestions.map((suggestion, i) => <li key={i}>{suggestion}</li>)}
+                                        {(errorItem.troubleshootingSuggestions || []).map((suggestion, i) => <li key={i}>{suggestion}</li>)}
                                       </ul>
                                     </div>
                                   )}
-                                   {errorItem.specificActionableRecommendations && errorItem.specificActionableRecommendations.length > 0 && (
+                                   {(errorItem.specificActionableRecommendations?.length ?? 0) > 0 && (
                                     <div>
                                       <h4 className="font-semibold mb-1">Specific Recommendations:</h4>
                                       <ul className="list-disc pl-5 space-y-0.5 text-xs">
-                                        {errorItem.specificActionableRecommendations.map((suggestion, i) => <li key={i}>{suggestion}</li>)}
+                                        {(errorItem.specificActionableRecommendations || []).map((suggestion, i) => <li key={i}>{suggestion}</li>)}
                                       </ul>
                                     </div>
                                   )}
@@ -502,7 +511,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                                     </p>
                                   )}
                                   {(errorItem.errorType.toLowerCase().includes("tcp reset") || errorItem.errorType.toLowerCase().includes("reset")) && 
-                                   (errorItem.relatedPacketSamples && errorItem.relatedPacketSamples.length > 0 || errorItem.packetNumber) && (
+                                   (errorItem.packetNumber || (errorItem.relatedPacketSamples && errorItem.relatedPacketSamples.length > 0)) && (
                                     <div className="mt-3 pt-3 border-t dark:border-gray-700">
                                       <Button
                                         variant="outline"
@@ -536,18 +545,18 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                         </CardHeader>
                         <CardContent className="space-y-6">
                             <div> <h3 className="font-semibold mb-2 text-base">Threat Analysis Summary:</h3> <p className="prose dark:prose-invert max-w-none text-sm md:text-base">{data.threatAnalysis || "No general threat analysis provided by AI."}</p> </div>
-                            {data.findings && data.findings.length > 0 && ( <div> <h3 className="font-semibold mt-4 mb-2 text-base">Specific Security Findings:</h3> <Accordion type="single" collapsible className="w-full"> {data.findings.map((finding,idx) => ( <AccordionItem value={finding.id || `finding-${idx}`} key={finding.id || `finding-${idx}`}> <AccordionTrigger className="text-sm hover:no-underline text-left">{finding.title || "Untitled Finding"} <Badge variant="outline" className="ml-2 text-xs">{finding.severity || 'N/A'}</Badge></AccordionTrigger> <AccordionContent className="text-xs space-y-1 pl-4"> <p><strong>Description:</strong> {finding.description}</p> <p><strong>Recommendation:</strong> {finding.recommendation}</p> <p><strong>Category:</strong> {finding.category}</p> {finding.affectedHosts && finding.affectedHosts.length > 0 && <p><strong>Affected Hosts:</strong> {finding.affectedHosts.join(', ')}</p>} {finding.relatedPackets && finding.relatedPackets.length > 0 && <p><strong>Related Packet Samples (No.):</strong> {finding.relatedPackets.join(', ')}</p>} <p><strong>Confidence:</strong> {finding.confidence !== undefined ? `${finding.confidence}%` : 'N/A'}</p> </AccordionContent> </AccordionItem> ))} </Accordion> </div> )}
-                            {data.iocs && data.iocs.length > 0 ? ( <div className="mt-6"> <IOCList iocs={data.iocs} /> </div> ) : ( <div className="mt-6"> <h3 className="font-semibold mb-2 text-base">Indicators of Compromise (IOCs):</h3> <p className="text-sm text-muted-foreground">No specific IOCs were identified by the AI in this analysis.</p> </div> )}
+                            {(data.findings?.length ?? 0) > 0 && ( <div> <h3 className="font-semibold mt-4 mb-2 text-base">Specific Security Findings:</h3> <Accordion type="single" collapsible className="w-full"> {(data.findings || []).map((finding,idx) => ( <AccordionItem value={finding.id || `finding-${idx}`} key={finding.id || `finding-${idx}`}> <AccordionTrigger className="text-sm hover:no-underline text-left">{finding.title || "Untitled Finding"} <Badge variant="outline" className="ml-2 text-xs">{finding.severity || 'N/A'}</Badge></AccordionTrigger> <AccordionContent className="text-xs space-y-1 pl-4"> <p><strong>Description:</strong> {finding.description}</p> <p><strong>Recommendation:</strong> {finding.recommendation}</p> <p><strong>Category:</strong> {finding.category}</p> {finding.affectedHosts && finding.affectedHosts.length > 0 && <p><strong>Affected Hosts:</strong> {finding.affectedHosts.join(', ')}</p>} {finding.relatedPackets && finding.relatedPackets.length > 0 && <p><strong>Related Packet Samples (No.):</strong> {finding.relatedPackets.join(', ')}</p>} <p><strong>Confidence:</strong> {finding.confidence !== undefined ? `${finding.confidence}%` : 'N/A'}</p> </AccordionContent> </AccordionItem> ))} </Accordion> </div> )}
+                            {(data.iocs?.length ?? 0) > 0 ? ( <div className="mt-6"> <IOCList iocs={data.iocs!} /> </div> ) : ( <div className="mt-6"> <h3 className="font-semibold mb-2 text-base">Indicators of Compromise (IOCs):</h3> <p className="text-sm text-muted-foreground">No specific IOCs were identified by the AI in this analysis.</p> </div> )}
                         </CardContent>
                     </Card>
                   </div>
                 </TabsContent>
-                <TabsContent value="recommendations"><Card><CardHeader><CardTitle className="flex items-center text-lg"><MessageSquare className="mr-2 text-green-500"/>Recommended Actions</CardTitle></CardHeader><CardContent className="prose dark:prose-invert max-w-none text-sm md:text-base">{data.recommendations&&Array.isArray(data.recommendations)&&data.recommendations.length>0?(<ul className="list-disc pl-5 space-y-2">{data.recommendations.map((rec,index)=>(<li key={index}><strong className="font-medium">{rec.title||`Recommendation ${index+1}`}</strong> (Priority: {rec.priority||"N/A"}):<p className="text-sm ml-4">{rec.description||"No detailed description."}</p></li>))}</ul>):(<p>{typeof data.recommendations==="string"?data.recommendations:"No specific recommendations provided by AI."}</p>)}</CardContent></Card></TabsContent>
-                <TabsContent value="timeline"><Card><CardHeader><CardTitle className="flex items-center text-lg"><Clock className="mr-2 text-fuchsia-500"/>Event Timeline</CardTitle></CardHeader><CardContent>{data.timeline&&data.timeline.length>0?(<div className="relative pl-6 space-y-6 border-l-2 border-gray-200 dark:border-gray-700">{data.timeline.map((event,index)=>(<div key={index}className="relative"><div className={`absolute -left-[calc(0.75rem+1px)] mt-1.5 flex h-6 w-6 items-center justify-center rounded-full ${event.severity==="error"?"bg-red-500":event.severity==="warning"?"bg-yellow-500":"bg-blue-500"} text-white text-xs font-semibold`}>{event.severity==="error"?<AlertCircle size={14}/>:event.severity==="warning"?<AlertTriangle size={14}/>:<Info size={14}/>}</div><div className="ml-4"><p className="font-medium text-sm">{event.event||"Unknown Event"}</p><p className="text-xs text-muted-foreground">{event.time&&!event.time.includes("Packet Sample")?new Date(event.time).toLocaleString():event.time||"N/A"}</p></div></div>))}</div>):(<p className="text-center text-gray-500 dark:text-gray-400 py-4">No timeline events provided by AI.</p>)}</CardContent></Card></TabsContent>
-                <TabsContent value="visuals"className="space-y-6">{data.protocolDistribution&&data.protocolDistribution.length>0&&(<Card><CardHeader><CardTitle className="flex items-center text-lg"><PieChartIcon className="mr-2 text-purple-500"/>Protocol Distribution</CardTitle></CardHeader><CardContent style={{width:"100%",height:300}}><ResponsiveContainer><PieChart><Pie activeIndex={activePieIndex}activeShape={renderActiveShape}data={data.protocolDistribution}cx="50%"cy="50%"innerRadius={60}outerRadius={100}fill="#8884d8"dataKey="value"onMouseEnter={onPieEnter}>{data.protocolDistribution.map((entry,index)=>(<Cell key={`cell-${index}`}fill={entry.fill||COLORS[index%COLORS.length]}/>))}</Pie><RechartsTooltip/><Legend layout="vertical"align="right"verticalAlign="middle"iconSize={10}wrapperStyle={{fontSize:"12px"}}/></PieChart></ResponsiveContainer></CardContent></Card>)} {data.statistics?.topTalkers&&data.statistics.topTalkers.length>0&&data.statistics.topTalkers[0].ip!=="No identifiable IP traffic"&&(<Card><CardHeader><CardTitle className="flex items-center text-lg"><BarChart2 className="mr-2 text-green-500"/>Top Talkers (by Packets)</CardTitle></CardHeader><CardContent style={{width:"100%",height:300}}><ResponsiveContainer><BarChart data={data.statistics.topTalkers}layout="vertical"margin={{top:5,right:30,left:20,bottom:5}}><CartesianGrid strokeDasharray="3 3"/><XAxis type="number"/><YAxis dataKey="ip"type="category"width={150}interval={0}tick={{fontSize:10}}/><RechartsTooltip/><Legend wrapperStyle={{fontSize:"12px"}}/><Bar dataKey="packets"name="Total Packets"fill="#82ca9d"/></BarChart></ResponsiveContainer></CardContent></Card>)}</TabsContent>
+                <TabsContent value="recommendations"><Card><CardHeader><CardTitle className="flex items-center text-lg"><MessageSquare className="mr-2 text-green-500"/>Recommended Actions</CardTitle></CardHeader><CardContent className="prose dark:prose-invert max-w-none text-sm md:text-base">{data.recommendations && Array.isArray(data.recommendations) && data.recommendations.length > 0?(<ul className="list-disc pl-5 space-y-2">{(data.recommendations || []).map((rec,index)=>(<li key={index}><strong className="font-medium">{rec.title||`Recommendation ${index+1}`}</strong> (Priority: {rec.priority||"N/A"}):<p className="text-sm ml-4">{rec.description||"No detailed description."}</p></li>))}</ul>):(<p>{typeof data.recommendations==="string"?data.recommendations:"No specific recommendations provided by AI."}</p>)}</CardContent></Card></TabsContent>
+                <TabsContent value="timeline"><Card><CardHeader><CardTitle className="flex items-center text-lg"><Clock className="mr-2 text-fuchsia-500"/>Event Timeline</CardTitle></CardHeader><CardContent>{(data.timeline?.length ?? 0) >0?(<div className="relative pl-6 space-y-6 border-l-2 border-gray-200 dark:border-gray-700">{(data.timeline || []).map((event,index)=>(<div key={index}className="relative"><div className={`absolute -left-[calc(0.75rem+1px)] mt-1.5 flex h-6 w-6 items-center justify-center rounded-full ${event.severity==="error"?"bg-red-500":event.severity==="warning"?"bg-yellow-500":"bg-blue-500"} text-white text-xs font-semibold`}>{event.severity==="error"?<AlertCircle size={14}/>:event.severity==="warning"?<AlertTriangle size={14}/>:<Info size={14}/>}</div><div className="ml-4"><p className="font-medium text-sm">{event.event||"Unknown Event"}</p><p className="text-xs text-muted-foreground">{event.time&&!event.time.includes("Packet Sample")?new Date(event.time).toLocaleString():event.time||"N/A"}</p></div></div>))}</div>):(<p className="text-center text-gray-500 dark:text-gray-400 py-4">No timeline events provided by AI.</p>)}</CardContent></Card></TabsContent>
+                <TabsContent value="visuals"className="space-y-6">{(data.protocolDistribution?.length ?? 0)>0&&(<Card><CardHeader><CardTitle className="flex items-center text-lg"><PieChartIcon className="mr-2 text-purple-500"/>Protocol Distribution</CardTitle></CardHeader><CardContent style={{width:"100%",height:300}}><ResponsiveContainer><PieChart><Pie activeIndex={activePieIndex}activeShape={renderActiveShape}data={data.protocolDistribution}cx="50%"cy="50%"innerRadius={60}outerRadius={100}fill="#8884d8"dataKey="value"onMouseEnter={onPieEnter}>{(data.protocolDistribution || []).map((entry,index)=>(<Cell key={`cell-${index}`}fill={entry.fill||COLORS[index%COLORS.length]}/>))}</Pie><RechartsTooltip/><Legend layout="vertical"align="right"verticalAlign="middle"iconSize={10}wrapperStyle={{fontSize:"12px"}}/></PieChart></ResponsiveContainer></CardContent></Card>)} {(data.statistics?.topTalkers?.length ?? 0)>0&&data.statistics.topTalkers[0].ip!=="No identifiable IP traffic"&&(<Card><CardHeader><CardTitle className="flex items-center text-lg"><BarChart2 className="mr-2 text-green-500"/>Top Talkers (by Packets)</CardTitle></CardHeader><CardContent style={{width:"100%",height:300}}><ResponsiveContainer><BarChart data={data.statistics.topTalkers}layout="vertical"margin={{top:5,right:30,left:20,bottom:5}}><CartesianGrid strokeDasharray="3 3"/><XAxis type="number"/><YAxis dataKey="ip"type="category"width={150}interval={0}tick={{fontSize:10}}/><RechartsTooltip/><Legend wrapperStyle={{fontSize:"12px"}}/><Bar dataKey="packets"name="Total Packets"fill="#82ca9d"/></BarChart></ResponsiveContainer></CardContent></Card>)}</TabsContent>
                 {data.performanceMetrics&&(<TabsContent value="performance"><Card><CardHeader><CardTitle className="flex items-center text-lg"><Activity className="mr-2 text-cyan-500"/>Performance</CardTitle></CardHeader><CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm md:text-base"><div><strong>Total Packets (in file):</strong> {data.performanceMetrics.totalPackets?.toLocaleString()||data.statistics?.totalPacketsInFile?.toLocaleString()||"N/A"}</div><div><strong>Total Bytes (in file):</strong> {data.performanceMetrics.totalBytes?.toLocaleString()||data.statistics?.totalBytesInFile?.toLocaleString()||"N/A"}</div><div><strong>Capture Duration:</strong> {data.performanceMetrics.captureDuration||"N/A"}</div><div><strong>Avg Packet Rate:</strong> {data.performanceMetrics.averagePacketRate||"N/A"}</div></CardContent></Card></TabsContent>)}
                 
-                {data.voipAnalysisReport && (data.voipAnalysisReport.detectedCalls && data.voipAnalysisReport.detectedCalls.length > 0 || data.voipAnalysisReport.potentialIssues && data.voipAnalysisReport.potentialIssues.length > 0) && (
+                {data.voipAnalysisReport && ((data.voipAnalysisReport.detectedCalls?.length ?? 0) > 0 || (data.voipAnalysisReport.potentialVoipIssues?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis && ((data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved && data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A")))) && (
                   <TabsContent value="voip">
                     <Card>
                       <CardHeader>
@@ -555,18 +564,18 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                           <PhoneOff className="mr-2 text-indigo-500" /> VoIP/Call Analysis
                         </CardTitle>
                         <CardDescription>
-                          {data.voipAnalysisReport.summary || "Insights into Voice over IP and call-related traffic."}
+                          {data.voipAnalysisReport.voipSummary || "Insights into Voice over IP and call-related traffic."}
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        {data.voipAnalysisReport.detectedCalls && data.voipAnalysisReport.detectedCalls.length > 0 && (
+                        {(data.voipAnalysisReport.detectedCalls?.length ?? 0) > 0 && (
                           <div>
                             <h4 className="font-semibold mb-2 text-base">Detected Calls:</h4>
                             <Accordion type="multiple" className="w-full">
-                              {data.voipAnalysisReport.detectedCalls.map((call, index) => (
+                              {(data.voipAnalysisReport.detectedCalls || []).map((call, index) => (
                                 <AccordionItem value={`call-${index}`} key={call.callId || `call-${index}`}>
                                   <AccordionTrigger className="text-sm hover:no-underline">
-                                    Call from {call.callerIp || "Unknown"}{call.callerPort ? `:${call.callerPort}` : ""} to {call.calleeIp || "Unknown"}{call.calleePort ? `:${call.calleePort}` : ""} - <Badge variant={call.status.toLowerCase().includes('failed') ? 'destructive' : 'secondary'}>{call.status}</Badge>
+                                    Call from {call.callerIp || "Unknown"}{call.callerPort ? `:${call.callerPort}` : ""} to {call.calleeIp || "Unknown"}{call.calleePort ? `:${call.calleePort}` : ""} - <Badge variant={call.status?.toLowerCase().includes('failed') ? 'destructive' : 'secondary'}>{call.status || 'Unknown'}</Badge>
                                   </AccordionTrigger>
                                   <AccordionContent className="text-xs space-y-1 pl-4">
                                     {call.callId && <p><strong>Call ID:</strong> {call.callId}</p>}
@@ -575,18 +584,18 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                                     {call.endTime && <p><strong>End Time:</strong> {new Date(call.endTime).toLocaleString()}</p>}
                                     {call.duration && <p><strong>Duration:</strong> {call.duration}</p>}
                                     {call.failureReason && <p><strong>Failure Reason:</strong> {call.failureReason}</p>}
-                                    {call.relatedPacketNumbers && call.relatedPacketNumbers.length > 0 && <p><strong>Related Packets (No.):</strong> {call.relatedPacketNumbers.join(', ')}</p>}
+                                    {(call.relatedPacketNumbers?.length ?? 0) > 0 && <p><strong>Related Packets (No.):</strong> {(call.relatedPacketNumbers || []).join(', ')}</p>}
                                   </AccordionContent>
                                 </AccordionItem>
                               ))}
                             </Accordion>
                           </div>
                         )}
-                        {data.voipAnalysisReport.potentialVoipIssues && data.voipAnalysisReport.potentialIssues.length > 0 && (
+                        {(data.voipAnalysisReport.potentialVoipIssues?.length ?? 0) > 0 && (
                            <div>
                             <h4 className="font-semibold mt-4 mb-2 text-base">Potential VoIP Issues:</h4>
                              <ul className="list-disc pl-5 space-y-2 text-sm">
-                              {data.voipAnalysisReport.potentialVoipIssues.map((issue, index) => (
+                              {(data.voipAnalysisReport.potentialVoipIssues || []).map((issue, index) => (
                                 <li key={index}>
                                   <strong>{issue.issueType}:</strong> {issue.description}
                                   {issue.evidence && <em className="block text-xs text-muted-foreground">Evidence: {issue.evidence}</em>}
@@ -597,28 +606,28 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                            </div>
                         )}
                          {data.voipAnalysisReport.cucmSpecificAnalysis && 
-                            (data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues && data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues.length > 0 ||
-                             data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors && data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors.length > 0 ||
-                             data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved && data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A"
+                            (((data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues?.length ?? 0) > 0) ||
+                             ((data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors?.length ?? 0) > 0) ||
+                             (data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved && data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A")
                             ) && (
                             <div>
                                 <h4 className="font-semibold mt-4 mb-2 text-base">CUCM Specific Analysis:</h4>
-                                {data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues && data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues.length > 0 && (
-                                    <div className="mb-2"><strong>Registration Issues:</strong> <ul className="list-disc pl-5 text-xs">{data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues.map((item, i) => <li key={`reg-${i}`}>{item}</li>)}</ul></div>
+                                {(data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues?.length ?? 0) > 0 && (
+                                    <div className="mb-2"><strong>Registration Issues:</strong> <ul className="list-disc pl-5 text-xs">{(data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues || []).map((item, i) => <li key={`reg-${i}`}>{item}</li>)}</ul></div>
                                 )}
-                                {data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors && data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors.length > 0 && (
-                                    <div className="mb-2"><strong>Call Processing Errors:</strong> <ul className="list-disc pl-5 text-xs">{data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors.map((item, i) => <li key={`proc-${i}`}>{item}</li>)}</ul></div>
+                                {(data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors?.length ?? 0) > 0 && (
+                                    <div className="mb-2"><strong>Call Processing Errors:</strong> <ul className="list-disc pl-5 text-xs">{(data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors || []).map((item, i) => <li key={`proc-${i}`}>{item}</li>)}</ul></div>
                                 )}
                                 {data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved && data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A" &&(
                                     <p><strong>Common CUCM Problems Observed:</strong> {data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved}</p>
                                 )}
                             </div>
                         )}
-                         {(!data.voipAnalysisReport.detectedCalls || data.voipAnalysisReport.detectedCalls.length === 0) && 
-                          (!data.voipAnalysisReport.potentialVoipIssues || data.voipAnalysisReport.potentialVoipIssues.length > 0) && 
+                         {((data.voipAnalysisReport.detectedCalls?.length ?? 0) === 0) && 
+                          ((data.voipAnalysisReport.potentialVoipIssues?.length ?? 0) === 0) && 
                           (!data.voipAnalysisReport.cucmSpecificAnalysis || (
-                            (!data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues || data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues.length === 0) &&
-                            (!data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors || data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors.length === 0) &&
+                            ((data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues?.length ?? 0) === 0) &&
+                            ((data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors?.length ?? 0) === 0) &&
                             (!data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved || data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved === "N/A")
                           )) && (
                             <p className="text-sm text-muted-foreground">No specific VoIP call details or issues were highlighted by the AI.</p>
@@ -668,7 +677,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   packetInfo={animationData.packetInfo}
                   errorType={animationData.type}
                   animationKey={animationComponentKey} 
-                  onReplay={handleReplayAnimation} 
+                  onReplay={handleReplayAnimationInModal} 
                 />
               )}
               <DialogFooter>
