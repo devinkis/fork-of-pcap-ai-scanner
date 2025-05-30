@@ -15,7 +15,7 @@ import {
   BarChart2, PieChart as PieChartIcon, Info, Maximize2, Download, 
   Share2, Printer, MessageSquare, Edit3, RefreshCw, Loader2, AlertTriangle, Siren,
   Server as ServerIcon, User as UserIcon, ArrowRight, XCircle as XCircleIcon, Zap, Mail,
-  ArrowLeftRight, Send, PhoneOff, ArrowLeft
+  ArrowLeftRight, Send, PhoneOff, ArrowLeft, PhoneCall, PhoneIncoming, PhoneOutgoing
 } from 'lucide-react';
 import {
   Dialog,
@@ -38,42 +38,40 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { IOCList } from "@/components/ioc-list";
 
-// --- Definisi Interface (Sama seperti V6, namun perhatikan optional chaining saat digunakan) ---
+// --- Definisi Interface ---
 interface ProtocolDistribution { name: string; value: number; fill: string; }
 interface Conversation { id: string; sourceIp: string; destinationIp: string; protocol: string; packets: number; bytes: number; startTime?: string; endTime?: string; duration?: string; }
 interface AlertInfo { id: string; timestamp: string; severity: 'Low' | 'Medium' | 'High' | 'Critical'; description: string; sourceIp?: string; destinationIp?: string; protocol?: string; signature?: string; }
 interface DetailedPacketInfo { id: string; timestamp: string; source: string; destination: string; protocol: string; length: number; summary: string; payload?: string; }
-interface IOC { type: "ip" | "domain" | "url" | "hash" | "port"; value: string; context: string; confidence: number; }
+interface IOC { type: "ip" | "domain" | "url" | "hash" | "port"; value: string; context: string; confidence: number; } // Tambahkan "port"
 
-interface ErrorReportItem { 
-  errorType: string; 
-  count?: number; 
-  packetNumber?: number;
-  packetInfoFromParser?: string; 
-  description: string; 
-  possibleCauses: string[]; 
-  troubleshootingSuggestions: string[]; 
+// Struktur untuk analisis error per instance dari AI (sesuai ai.txt)
+interface DetailedErrorInstance {
+  packetNumber: number;
+  errorType: string;
+  packetInfoFromParser: string; 
+  detailedExplanation: string; 
+  probableCauseInThisContext: string; 
+  specificActionableRecommendations: string[]; 
+  // relatedPacketSamples tidak ada di ai.txt untuk detailedErrorAnalysis, jadi opsional
   relatedPacketSamples?: number[]; 
-  detailedExplanation?: string;
-  probableCauseInThisContext?: string;
-  specificActionableRecommendations?: string[];
 }
 
 interface SamplePacketForContext { no: number; timestamp: string; source: string; destination: string; sourcePort?: number; destPort?: number; protocol: string; length: number; info: string; isError?: boolean; errorType?: string; payloadHexSample?: string;}
 
 interface VoipCallAnalysis {
   callId?: string;
-  callerIp?: string; 
-  callerPort?: number; 
-  calleeIp?: string; 
-  calleePort?: number; 
-  status: 'Completed' | 'Failed' | 'Attempting' | 'No Answer' | 'Busy' | 'Ringing' | 'InProgress' | 'Unknown' | string; 
+  callerIp?: string; // Sesuai ai.txt
+  callerPort?: number; // Sesuai ai.txt
+  calleeIp?: string; // Sesuai ai.txt
+  calleePort?: number; // Sesuai ai.txt
+  status: 'Completed' | 'Failed' | 'Attempting' | 'No Answer' | 'Busy' | 'Ringing' | 'InProgress' | 'Unknown' | string; // Tambahkan string untuk fleksibilitas
   failureReason?: string;
   relatedPacketNumbers?: number[];
-  duration?: string | number; 
+  duration?: string | number; // Bisa string atau number
   startTime?: string;
-  endTime?: string; 
-  protocol?: 'SIP' | 'SCCP' | 'H323' | 'RTP' | 'RTCP' | 'UDP' | 'TCP' | 'Unknown' | string; 
+  endTime?: string; // Tambahkan endTime
+  protocol?: 'SIP' | 'SCCP' | 'H323' | 'RTP' | 'RTCP' | 'UDP' | 'TCP' | 'Unknown' | string; // Tambahkan string
   qualityMetrics?: { jitter?: string; packetLoss?: string; mos?: number };
 }
 interface VoipPotentialIssue {
@@ -81,7 +79,7 @@ interface VoipPotentialIssue {
     description: string;
     evidence?: string; 
     recommendation?: string;
-    severity?: 'Low' | 'Medium' | 'High' | string; 
+    severity?: 'Low' | 'Medium' | 'High' | string; // Tambahkan string
 }
 interface VoipCucmAnalysis {
     registrationIssues?: string[];
@@ -89,10 +87,10 @@ interface VoipCucmAnalysis {
     commonCUCMProblemsObserved?: string;
 }
 interface VoipAnalysisReport {
-  voipSummary?: string; 
-  detectedCalls?: VoipCallAnalysis[]; 
-  potentialVoipIssues?: VoipPotentialIssue[]; 
-  cucmSpecificAnalysis?: VoipCucmAnalysis; 
+  voipSummary?: string; // Sesuai ai.txt
+  detectedCalls?: VoipCallAnalysis[]; // Sesuai ai.txt
+  potentialVoipIssues?: VoipPotentialIssue[]; // Sesuai ai.txt
+  cucmSpecificAnalysis?: VoipCucmAnalysis; // Sesuai ai.txt
 }
 
 
@@ -100,8 +98,7 @@ interface AiInsightsData {
   summary?: string;
   threatLevel?: string;
   trafficBehaviorScore?: { score: number; justification: string; };
-  errorAnalysisReport?: ErrorReportItem[]; 
-  detailedErrorAnalysis?: ErrorReportItem[]; 
+  detailedErrorAnalysis?: DetailedErrorInstance[]; // Menggunakan nama dan struktur baru
   voipAnalysisReport?: VoipAnalysisReport; 
   findings?: Array<{ id?: string; title?: string; description?: string; severity?: string; confidence?: number; recommendation?: string; category?: string; affectedHosts?: string[]; relatedPacketSamples?: number[]; }>;
   iocs?: IOC[];
@@ -109,11 +106,15 @@ interface AiInsightsData {
   recommendations?: Array<{ title?: string; description?: string; priority?: string; }>;
   timeline?: Array<{ time?: string; event?: string; severity?: string; }>;
   
+  // Field-field ini mungkin tidak lagi dikirim langsung jika sudah ada di 'statistics' dari AI
+  protocolDistribution?: ProtocolDistribution[];
+  topConversations?: Conversation[];
+  // ... field lain yang mungkin masih relevan dari definisi lama
   fileName?: string;
-  fileSize?: string | number; 
+  fileSize?: string | number; // Bisa number dari parser, string dari AI
   uploadDate?: string;
-  samplePacketsForContext?: SamplePacketForContext[]; 
-  status?: 'Pending' | 'Processing' | 'Completed' | 'Error' | 'UNKNOWN'; 
+  samplePacketsForContext?: SamplePacketForContext[]; // Tetap dibutuhkan untuk animasi
+  status?: 'Pending' | 'Processing' | 'Completed' | 'Error' | 'UNKNOWN'; // Untuk status loading/fetch
 }
 
 interface AiInsightsProps {
@@ -126,7 +127,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82Ca9D'
 const getStatusVariant = (status?: string): "default" | "secondary" | "destructive" | "outline" => { switch(status?.toLowerCase()){case"completed":return"default";case"processing":case"pending":return"secondary";case"error":return"destructive";default:return"outline"}};
 const renderActiveShape = (props: any) => { const RADIAN=Math.PI/180;const{cx,cy,midAngle,innerRadius,outerRadius,startAngle,endAngle,fill,payload,percent,value}=props;const sin=Math.sin(-RADIAN*midAngle);const cos=Math.cos(-RADIAN*midAngle);const sx=cx+(outerRadius+10)*cos;const sy=cy+(outerRadius+10)*sin;const mx=cx+(outerRadius+30)*cos;const my=cy+(outerRadius+30)*sin;const ex=mx+(cos>=0?1:-1)*22;const ey=my;const textAnchor=cos>=0?"start":"end";return(<g><text x={cx}y={cy}dy={8}textAnchor="middle"fill={fill}>{payload.name}</text><Sector cx={cx}cy={cy}innerRadius={innerRadius}outerRadius={outerRadius}startAngle={startAngle}endAngle={endAngle}fill={fill}/><Sector cx={cx}cy={cy}startAngle={startAngle}endAngle={endAngle}innerRadius={outerRadius+6}outerRadius={outerRadius+10}fill={fill}/><path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`}stroke={fill}fill="none"/><circle cx={ex}cy={ey}r={2}fill={fill}stroke="none"/><text x={ex+(cos>=0?1:-1)*12}y={ey}textAnchor={textAnchor}fill="#333">{`${value}`}</text><text x={ex+(cos>=0?1:-1)*12}y={ey}dy={18}textAnchor={textAnchor}fill="#999">{`(Rate ${(percent*100).toFixed(2)}%)`}</text></g>)};
 
-// --- Komponen Animasi TCP Reset ---
+// --- Komponen Animasi TCP Reset (dari versi sebelumnya yang sudah baik) ---
 interface TcpResetAnimationProps {
   clientIp?: string;
   serverIp?: string;
@@ -161,12 +162,11 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
 
   useEffect(() => {
     let timeouts: NodeJS.Timeout[] = [];
-    
     setCurrentStep(0);
     setShowStepLabel(false);
 
     timeouts.push(setTimeout(() => {
-      setCurrentStep(1); 
+      setCurrentStep(s => s === 0 ? 1 : s); 
       timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
     }, 100)); 
 
@@ -194,7 +194,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
     );
     
     return () => { timeouts.forEach(clearTimeout); };
-  }, [animationKey, animationSteps, stepDuration, labelDelay]); 
+  }, [animationKey, animationSteps, stepDuration, labelDelay]);
 
   const getIpRole = (ip: string | undefined, isInitiator: boolean | undefined, isClient: boolean) => {
     let role = isClient ? "Klien" : "Server";
@@ -335,7 +335,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   } | null>(null);
   const [animationComponentKey, setAnimationComponentKey] = useState(0); 
 
-  const fetchData = useCallback(async (isRetry = false) => { if(!isRetry)setIsLoading(true);setError(null);console.log(`[AI_INSIGHTS] Fetching AI analysis data for ID: ${analysisId}`);try{const response=await fetch("/api/analyze-pcap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({analysisId:analysisId}),});const result=await response.json();if(!response.ok)throw new Error(result.error||result.message||`HTTP error! status: ${response.status}`);if(result&&result.success&&result.analysis){const analysisData=result.analysis;console.log("[AI_INSIGHTS] Received data from API:", analysisData); setData(prevData=>({fileName:prevData?.fileName||analysisData.fileName||initialServerData?.fileName,fileSize:prevData?.fileSize||analysisData.fileSize||initialServerData?.fileSize,uploadDate:prevData?.uploadDate||analysisData.uploadDate||initialServerData?.uploadDate,...analysisData,status:"Completed",analystNotes:analysisData.analystNotes||prevData?.analystNotes||initialServerData?.analystNotes||"",samplePacketsForContext: analysisData.samplePacketsForContext || prevData?.samplePacketsForContext || initialServerData?.samplePacketsForContext || []}));setAnalystNotes(analysisData.analystNotes||data?.analystNotes||initialServerData?.analystNotes||"");}else{throw new Error(result.error||"Received unexpected data structure from AI analysis API.");}}catch(err:any){console.error("[AI_INSIGHTS] Error in fetchData:",err);setError(err.message||"An unknown error occurred while fetching AI analysis.");setData(prevData=>({...prevData,status:"Error"}as AiInsightsData));}finally{setIsLoading(false);}}, [analysisId, data?.analystNotes, initialServerData]);
+  const fetchData = useCallback(async (isRetry = false) => { if(!isRetry)setIsLoading(true);setError(null);console.log(`[AI_INSIGHTS] Fetching AI analysis data for ID: ${analysisId}`);try{const response=await fetch("/api/analyze-pcap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({analysisId:analysisId}),});const result=await response.json();if(!response.ok)throw new Error(result.error||result.message||`HTTP error! status: ${response.status}`);if(result&&result.success&&result.analysis){const analysisData=result.analysis;setData(prevData=>({fileName:prevData?.fileName||analysisData.fileName||initialServerData?.fileName,fileSize:prevData?.fileSize||analysisData.fileSize||initialServerData?.fileSize,uploadDate:prevData?.uploadDate||analysisData.uploadDate||initialServerData?.uploadDate,...analysisData,status:"Completed",analystNotes:analysisData.analystNotes||prevData?.analystNotes||initialServerData?.analystNotes||"",samplePacketsForContext: analysisData.samplePacketsForContext || prevData?.samplePacketsForContext || initialServerData?.samplePacketsForContext || []}));setAnalystNotes(analysisData.analystNotes||data?.analystNotes||initialServerData?.analystNotes||"");}else{throw new Error(result.error||"Received unexpected data structure from AI analysis API.");}}catch(err:any){console.error("[AI_INSIGHTS] Error in fetchData:",err);setError(err.message||"An unknown error occurred while fetching AI analysis.");setData(prevData=>({...prevData,status:"Error"}as AiInsightsData));}finally{setIsLoading(false);}}, [analysisId, data?.analystNotes, initialServerData]);
   useEffect(() => { if(initialServerData&&!initialError){setData(initialServerData);setAnalystNotes(initialServerData.analystNotes||"");setIsLoading(false);}else if(initialError){setError(initialError);setIsLoading(false);}else if(!data&&analysisId&&isLoading){fetchData();}else if(data&&!isLoading){/* Data already loaded or no fetch needed initially */}}, [analysisId, initialServerData, initialError, data, isLoading, fetchData]);
   const onPieEnter = useCallback((_: any, index: number) => setActivePieIndex(index), []);
   const handleSaveNotes = async () => { setIsSavingNotes(true);setError(null);try{const response=await fetch(`/api/analysis/${analysisId}/notes`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({notes:analystNotes}),});if(!response.ok){const errorData=await response.json().catch(()=>({message:"Failed to save notes"}));throw new Error(errorData.message||"Failed to save notes");}const saveData=await response.json();console.log("Notes saved successfully:",saveData);setData(prevData=>prevData?{...prevData,analystNotes:analystNotes}:null);alert("Notes saved!");}catch(err:any){console.error("Error saving notes:",err);setError(`Failed to save notes: ${err.message}`);}finally{setIsSavingNotes(false);}};
@@ -345,36 +345,35 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
 
   const handleVisualizeError = (errorItem: ErrorReportItem) => { 
     let targetPacket: SamplePacketForContext | undefined;
-    let packetNumberToFind: number | undefined = errorItem.packetNumber;
 
-    if (!packetNumberToFind && errorItem.relatedPacketSamples && errorItem.relatedPacketSamples.length > 0) {
-        packetNumberToFind = errorItem.relatedPacketSamples[0];
-    }
-
-    if (packetNumberToFind && data?.samplePacketsForContext) {
-        targetPacket = data.samplePacketsForContext.find(p => p.no === packetNumberToFind);
+    if (errorItem.packetNumber && data?.samplePacketsForContext) {
+        targetPacket = data.samplePacketsForContext.find(p => p.no === errorItem.packetNumber);
+    } 
+    else if (errorItem.relatedPacketSamples && errorItem.relatedPacketSamples.length > 0 && data?.samplePacketsForContext) {
+        const firstPacketNo = errorItem.relatedPacketSamples[0];
+        targetPacket = data.samplePacketsForContext.find(p => p.no === firstPacketNo);
     }
 
     if (targetPacket) {
         console.log("[handleVisualizeError] Target packet for animation:", targetPacket); 
         setAnimationData({
             type: errorItem.errorType,
-            clientIp: targetPacket.source || "IP Klien Tidak Ada", 
-            serverIp: targetPacket.destination || "IP Server Tidak Ada", 
+            clientIp: targetPacket.source || "Unknown Client", 
+            serverIp: targetPacket.destination || "Unknown Server", 
             packetNo: targetPacket.no,
             packetInfo: targetPacket.info,
-            resetInitiatorIp: targetPacket.source 
+            resetInitiatorIp: targetPacket.source // Asumsi default, bisa disesuaikan
         });
-        setAnimationComponentKey(prev => prev + 1); 
+        setAnimationComponentKey(prev => prev + 1); // Ini akan memicu re-render & reset animasi
         setAnimationModalOpen(true);
     } else {
-        console.warn("[handleVisualizeError] Could not find target packet. ErrorItem:", errorItem, "SamplePackets:", data?.samplePacketsForContext);
+        console.warn("[handleVisualizeError] Could not find target packet for animation. ErrorItem:", errorItem, "SamplePackets:", data?.samplePacketsForContext);
         alert("No specific packet context available to visualize this error flow accurately.");
     }
   };
 
   const handleReplayAnimationInModal = () => {
-    setAnimationComponentKey(prev => prev + 1); 
+    setAnimationComponentKey(prev => prev + 1); // Ini akan memicu re-render & reset animasi
   };
 
 
@@ -382,7 +381,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   if (error && !isLoading && (!data || data.status === 'Error')) { return(<Alert variant="destructive"className="max-w-2xl mx-auto my-8"><AlertCircle className="h-4 w-4"/><AlertTitle>Error Fetching Analysis</AlertTitle><AlertDescription><p>{error}</p><p>Analysis ID: {analysisId}</p><Button onClick={()=>fetchData(true)}variant="outline"className="mt-4"disabled={isLoading}><RefreshCw className="mr-2 h-4 w-4"/>{isLoading?"Retrying...":"Try Again"}</Button></AlertDescription></Alert>); }
   if (!data && !isLoading) { return(<Alert className="max-w-2xl mx-auto my-8"><Info className="h-4 w-4"/><AlertTitle>No AI Insights Available</AlertTitle><AlertDescription><p>AI insights could not be loaded for analysis ID: {analysisId}. The analysis might still be processing or an issue occurred.</p><Button onClick={()=>fetchData(true)}variant="outline"className="mt-4"disabled={isLoading}><RefreshCw className="mr-2 h-4 w-4"/>{isLoading?"Refreshing...":"Refresh"}</Button></AlertDescription></Alert>); }
   
-  // Pilih error report yang akan ditampilkan berdasarkan apakah backend sudah diupdate
+  // Sesuaikan errorReportToDisplay tergantung pada struktur yang dikembalikan AI
   const errorReportToDisplay = data.detailedErrorAnalysis || data.errorAnalysisReport || [];
 
 
@@ -556,7 +555,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                           <PhoneOff className="mr-2 text-indigo-500" /> VoIP/Call Analysis
                         </CardTitle>
                         <CardDescription>
-                          {data.voipAnalysisReport.voipSummary || "Insights into Voice over IP and call-related traffic."}
+                          {data.voipAnalysisReport.summary || "Insights into Voice over IP and call-related traffic."}
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
@@ -583,7 +582,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                             </Accordion>
                           </div>
                         )}
-                        {data.voipAnalysisReport.potentialVoipIssues && data.voipAnalysisReport.potentialVoipIssues.length > 0 && (
+                        {data.voipAnalysisReport.potentialVoipIssues && data.voipAnalysisReport.potentialIssues.length > 0 && (
                            <div>
                             <h4 className="font-semibold mt-4 mb-2 text-base">Potential VoIP Issues:</h4>
                              <ul className="list-disc pl-5 space-y-2 text-sm">
@@ -616,7 +615,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                             </div>
                         )}
                          {(!data.voipAnalysisReport.detectedCalls || data.voipAnalysisReport.detectedCalls.length === 0) && 
-                          (!data.voipAnalysisReport.potentialVoipIssues || data.voipAnalysisReport.potentialVoipIssues.length === 0) && 
+                          (!data.voipAnalysisReport.potentialVoipIssues || data.voipAnalysisReport.potentialVoipIssues.length > 0) && 
                           (!data.voipAnalysisReport.cucmSpecificAnalysis || (
                             (!data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues || data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues.length === 0) &&
                             (!data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors || data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors.length === 0) &&
@@ -669,7 +668,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   packetInfo={animationData.packetInfo}
                   errorType={animationData.type}
                   animationKey={animationComponentKey} 
-                  onReplay={handleReplayAnimationInModal} 
+                  onReplay={handleReplayAnimation} 
                 />
               )}
               <DialogFooter>
