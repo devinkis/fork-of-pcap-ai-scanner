@@ -7,8 +7,8 @@ const PcapParser = require('pcap-parser');
 const PCAPNGParser = require('pcap-ng-parser');
 import { Readable } from 'stream';
 
-const MAX_SAMPLES_FOR_AI = 15; 
-const MAX_ERROR_INSTANCES_FOR_AI = 7; // Batasi jumlah instance error yang dikirim ke AI
+const MAX_SAMPLES_FOR_AI = 150; 
+const MAX_ERROR_INSTANCES_FOR_AI = 100; // Batasi jumlah instance error yang dikirim ke AI
 const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; 
 
 // --- Fungsi Helper Timestamp (tetap sama) ---
@@ -396,18 +396,18 @@ export async function POST(request: NextRequest) {
         3.  Provide a traffic behavior score (0-100, 0=benign, 100=malicious) with justification.
         4.  **Detailed Error Analysis**: For EACH packet in 'Specific Error Packets for Detailed Analysis' (if any):
             - packetNumber: (the 'no' field from the error packet)
-            - errorType: (e.g., "TCP Reset", "TruncatedHeader")
+            - errorType: (e.g., "TCP Reset", "TruncatedHeader", "TCP Retransmission", "TCP Dup ACK", "TCP Out-of-Order", "TCP Window Full", "TCP Zero Window", "TCP Spurious Retransmission", "Bad TCP Checksum", "ICMP Destination Unreachable", "ICMP Port Unreachable", "Malformed Packet", "DNS Error", "ARP Unsolicited Reply", "IP Fragmentation", "IP Reassembly Failure", "TLS Handshake Failure", "SSL Alert", "HTTP 4xx Error", "HTTP 5xx Error", "SIP 404 Not Found", "SIP 486 Busy Here", "SIP 503 Service Unavailable", "SIP 408 Request Timeout", "SIP 403 Forbidden", "SIP 400 Bad Request", "SIP 500 Server Internal Error", "SIP 603 Decline", "SIP 487 Request Terminated", "SIP 480 Temporarily Unavailable", "SIP Loop Detected", "SIP Too Many Hops", "SIP Unsupported Media Type", "SIP Request Retransmission", "RTP Packet Loss", "RTP Out-of-Order", "RTP Jitter", "RTP Silence", "RTP Late Packet", "RTP Payload Type Mismatch", "RTP Stream Not Detected", "RTCP Packet Loss Report", "RTCP High Delay", "RTCP Sender Report Missing", "RTCP Receiver Report Missing", "VoIP One-Way Audio", "VoIP No Audio", "VoIP Codec Mismatch", "VoIP Jitter Buffer Overflow", "VoIP Packet Discarded", "VoIP Latency Spike", "DTMF Transmission Error", "SRTP Decryption Failure", "SRTP Authentication Failure", "NAT Traversal Failure", "STUN Timeout", "TURN Allocation Failure", "ICE Negotiation Failure", "Codec Negotiation Failure" )
             - packetInfoFromParser: (the 'infoFromParser' field)
             - detailedExplanation: Provide an in-depth explanation of what this specific errorType means in the context of THIS packet (source, destination, protocol, and its parser-generated info).
             - probableCauseInThisContext: Based on this specific packet's details, what is the most probable cause for this error instance?
             - specificActionableRecommendations: [Array of 1-2 concise, actionable steps to investigate or fix THIS specific error instance.]
-        5.  List up to 5 general security findings (observations beyond the specific errors analyzed above). For each:
+        5.  List all general security findings (observations beyond the specific errors analyzed above). For each:
             - id, title, description, severity, confidence, recommendation, category, affectedHosts (optional), relatedPackets (optional, use 'no' from general sample if relevant, not from errorPackets).
-        6.  Identify up to 3-5 Indicators of Compromise (IOCs) if any are strongly suggested by the general traffic or specific errors. For each:
+        6.  Identify all Indicators of Compromise (IOCs) if any are strongly suggested by the general traffic or specific errors. For each:
             - type, value, context, confidence.
-        7.  Suggest 2-3 general recommendations for security improvement based on overall patterns. For each:
+        7.  Suggest all general recommendations for security improvement based on overall patterns. For each:
             - title, description, priority.
-        8.  Create a brief timeline of up to 3-5 most significant events (can be from error packets or general observations). For each:
+        8.  Create a brief timeline of all most significant events (can be from error packets or general observations). For each:
             - time, event, severity.
 
         Format your ENTIRE response strictly as a single JSON object.
