@@ -8,7 +8,7 @@ const PCAPNGParser = require('pcap-ng-parser');
 import { Readable } from 'stream'; //
 
 const MAX_SAMPLES_FOR_AI = 25; 
-const MAX_ERROR_INSTANCES_FOR_AI = 7; 
+const MAX_ERROR_INSTANCES_FOR_AI = 25; 
 const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; 
 
 // --- Fungsi Helper Timestamp ---

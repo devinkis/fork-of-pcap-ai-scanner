@@ -15,7 +15,7 @@ import {
   BarChart2, PieChart as PieChartIcon, Info, Maximize2, Download, 
   Share2, Printer, MessageSquare, Edit3, RefreshCw, Loader2, AlertTriangle, Siren,
   Server as ServerIcon, User as UserIcon, ArrowRight, XCircle as XCircleIcon, Zap, Mail,
-  ArrowLeftRight, Send, PhoneOff, ArrowLeft, PhoneCall, PhoneIncoming, PhoneOutgoing
+  ArrowLeftRight, Send, PhoneOff, ArrowLeft
 } from 'lucide-react';
 import {
   Dialog,
@@ -43,78 +43,90 @@ interface ProtocolDistribution { name: string; value: number; fill: string; }
 interface Conversation { id: string; sourceIp: string; destinationIp: string; protocol: string; packets: number; bytes: number; startTime?: string; endTime?: string; duration?: string; }
 interface AlertInfo { id: string; timestamp: string; severity: 'Low' | 'Medium' | 'High' | 'Critical'; description: string; sourceIp?: string; destinationIp?: string; protocol?: string; signature?: string; }
 interface DetailedPacketInfo { id: string; timestamp: string; source: string; destination: string; protocol: string; length: number; summary: string; payload?: string; }
-interface IOC { type: "ip" | "domain" | "url" | "hash" | "port"; value: string; context: string; confidence: number; } // Tambahkan "port"
+interface IOC { type: "ip" | "domain" | "url" | "hash"; value: string; context: string; confidence: number; }
 
-// Struktur untuk analisis error per instance dari AI (sesuai ai.txt)
-interface DetailedErrorInstance {
-  packetNumber: number;
-  errorType: string;
-  packetInfoFromParser: string; 
-  detailedExplanation: string; 
-  probableCauseInThisContext: string; 
-  specificActionableRecommendations: string[]; 
-  // relatedPacketSamples tidak ada di ai.txt untuk detailedErrorAnalysis, jadi opsional
+interface ErrorReportItem { 
+  errorType: string; 
+  count?: number; 
+  packetNumber?: number;
+  packetInfoFromParser?: string; 
+  description: string; 
+  possibleCauses: string[]; 
+  troubleshootingSuggestions: string[]; 
   relatedPacketSamples?: number[]; 
+  detailedExplanation?: string;
+  probableCauseInThisContext?: string;
+  specificActionableRecommendations?: string[];
 }
 
-interface SamplePacketForContext { no: number; timestamp: string; source: string; destination: string; sourcePort?: number; destPort?: number; protocol: string; length: number; info: string; isError?: boolean; errorType?: string; payloadHexSample?: string;}
+interface SamplePacketForContext { no: number; timestamp: string; source: string; destination: string; protocol: string; length: number; info: string; isError?: boolean; errorType?: string; }
 
 interface VoipCallAnalysis {
   callId?: string;
-  callerIp?: string; // Sesuai ai.txt
-  callerPort?: number; // Sesuai ai.txt
-  calleeIp?: string; // Sesuai ai.txt
-  calleePort?: number; // Sesuai ai.txt
-  status: 'Completed' | 'Failed' | 'Attempting' | 'No Answer' | 'Busy' | 'Ringing' | 'InProgress' | 'Unknown' | string; // Tambahkan string untuk fleksibilitas
+  caller?: string;
+  callee?: string;
+  status: 'Completed' | 'Failed' | 'Attempting' | 'No Answer' | 'Busy' | 'Ringing' | 'InProgress';
   failureReason?: string;
-  relatedPacketNumbers?: number[];
-  duration?: string | number; // Bisa string atau number
+  relatedPackets?: number[];
+  duration?: string;
   startTime?: string;
-  endTime?: string; // Tambahkan endTime
-  protocol?: 'SIP' | 'SCCP' | 'H323' | 'RTP' | 'RTCP' | 'UDP' | 'TCP' | 'Unknown' | string; // Tambahkan string
+  protocol?: 'SIP' | 'SCCP' | 'H323' | 'RTP' | 'RTCP' | 'Unknown';
   qualityMetrics?: { jitter?: string; packetLoss?: string; mos?: number };
 }
-interface VoipPotentialIssue {
+interface VoipAnalysisReport {
+  summary?: string;
+  detectedCalls?: VoipCallAnalysis[];
+  potentialIssues?: Array<{
     issueType: string; 
     description: string;
     evidence?: string; 
     recommendation?: string;
-    severity?: 'Low' | 'Medium' | 'High' | string; // Tambahkan string
-}
-interface VoipCucmAnalysis {
+    severity?: 'Low' | 'Medium' | 'High';
+  }>;
+  cucmSpecificAnalysis?: {
     registrationIssues?: string[];
     callProcessingErrors?: string[];
-    commonCUCMProblemsObserved?: string;
-}
-interface VoipAnalysisReport {
-  voipSummary?: string; // Sesuai ai.txt
-  detectedCalls?: VoipCallAnalysis[]; // Sesuai ai.txt
-  potentialVoipIssues?: VoipPotentialIssue[]; // Sesuai ai.txt
-  cucmSpecificAnalysis?: VoipCucmAnalysis; // Sesuai ai.txt
+    commonCUCMProblems?: string;
+  };
 }
 
 
 interface AiInsightsData {
   summary?: string;
-  threatLevel?: string;
-  trafficBehaviorScore?: { score: number; justification: string; };
-  detailedErrorAnalysis?: DetailedErrorInstance[]; // Menggunakan nama dan struktur baru
-  voipAnalysisReport?: VoipAnalysisReport; 
-  findings?: Array<{ id?: string; title?: string; description?: string; severity?: string; confidence?: number; recommendation?: string; category?: string; affectedHosts?: string[]; relatedPacketSamples?: number[]; }>;
-  iocs?: IOC[];
-  statistics?: any; 
-  recommendations?: Array<{ title?: string; description?: string; priority?: string; }>;
-  timeline?: Array<{ time?: string; event?: string; severity?: string; }>;
-  
-  // Field-field ini mungkin tidak lagi dikirim langsung jika sudah ada di 'statistics' dari AI
+  threatAnalysis?: string;
+  anomalyDetection?: string;
+  recommendations?: string | Array<{ title?: string; description?: string; priority?: string; }>;
   protocolDistribution?: ProtocolDistribution[];
   topConversations?: Conversation[];
-  // ... field lain yang mungkin masih relevan dari definisi lama
+  alerts?: AlertInfo[];
+  detailedPacketSample?: DetailedPacketInfo[];
+  performanceMetrics?: { totalPackets: number; totalBytes: number; captureDuration: string; averagePacketRate: string; };
+  geoIpInformation?: { sourceIp: string; destinationIp: string; sourceLocation?: string; destinationLocation?: string; }[];
+  attackPatterns?: { patternName: string; description: string; involvedIps: string[]; }[];
   fileName?: string;
-  fileSize?: string | number; // Bisa number dari parser, string dari AI
+  fileSize?: string;
   uploadDate?: string;
-  samplePacketsForContext?: SamplePacketForContext[]; // Tetap dibutuhkan untuk animasi
-  status?: 'Pending' | 'Processing' | 'Completed' | 'Error' | 'UNKNOWN'; // Untuk status loading/fetch
+  captureStartTime?: string;
+  captureEndTime?: string;
+  analysisDuration?: string;
+  analystNotes?: string;
+  dnsQueries?: { query: string, type: string, response?: string, server: string }[];
+  httpRequests?: { host: string, path: string, method: string, userAgent?: string, statusCode?: number }[];
+  tlsHandshakes?: { clientHello: string, serverHello: string, cipherSuite?: string, version?: string }[];
+  flowData?: { flowId: string, srcIp: string, dstIp: string, srcPort: number, dstPort: number, protocol: string, packets: number, bytes: number, duration: number }[];
+  fileExtracts?: { fileName: string, fileType: string, size: number, sourceIp: string, destinationIp: string, md5sum?: string, sha1sum?: string }[];
+  version?: string;
+  status?: 'Pending' | 'Processing' | 'Completed' | 'Error' | 'UNKNOWN';
+  threatLevel?: string;
+  findings?: Array<{ id?: string; title?: string; description?: string; severity?: string; confidence?: number; recommendation?: string; category?: string; affectedHosts?: string[]; relatedPacketSamples?: number[]; }>;
+  iocs?: IOC[];
+  statistics?: any;
+  timeline?: Array<{ time?: string; event?: string; severity?: string; }>;
+  trafficBehaviorScore?: { score: number; justification: string; };
+  errorAnalysisReport?: ErrorReportItem[]; 
+  detailedErrorAnalysis?: ErrorReportItem[]; 
+  samplePacketsForContext?: SamplePacketForContext[];
+  voipAnalysisReport?: VoipAnalysisReport; 
 }
 
 interface AiInsightsProps {
@@ -127,7 +139,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82Ca9D'
 const getStatusVariant = (status?: string): "default" | "secondary" | "destructive" | "outline" => { switch(status?.toLowerCase()){case"completed":return"default";case"processing":case"pending":return"secondary";case"error":return"destructive";default:return"outline"}};
 const renderActiveShape = (props: any) => { const RADIAN=Math.PI/180;const{cx,cy,midAngle,innerRadius,outerRadius,startAngle,endAngle,fill,payload,percent,value}=props;const sin=Math.sin(-RADIAN*midAngle);const cos=Math.cos(-RADIAN*midAngle);const sx=cx+(outerRadius+10)*cos;const sy=cy+(outerRadius+10)*sin;const mx=cx+(outerRadius+30)*cos;const my=cy+(outerRadius+30)*sin;const ex=mx+(cos>=0?1:-1)*22;const ey=my;const textAnchor=cos>=0?"start":"end";return(<g><text x={cx}y={cy}dy={8}textAnchor="middle"fill={fill}>{payload.name}</text><Sector cx={cx}cy={cy}innerRadius={innerRadius}outerRadius={outerRadius}startAngle={startAngle}endAngle={endAngle}fill={fill}/><Sector cx={cx}cy={cy}startAngle={startAngle}endAngle={endAngle}innerRadius={outerRadius+6}outerRadius={outerRadius+10}fill={fill}/><path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`}stroke={fill}fill="none"/><circle cx={ex}cy={ey}r={2}fill={fill}stroke="none"/><text x={ex+(cos>=0?1:-1)*12}y={ey}textAnchor={textAnchor}fill="#333">{`${value}`}</text><text x={ex+(cos>=0?1:-1)*12}y={ey}dy={18}textAnchor={textAnchor}fill="#999">{`(Rate ${(percent*100).toFixed(2)}%)`}</text></g>)};
 
-// --- Komponen Animasi TCP Reset (dari versi sebelumnya yang sudah baik) ---
+// --- Komponen Animasi TCP Reset ---
 interface TcpResetAnimationProps {
   clientIp?: string;
   serverIp?: string;
@@ -144,8 +156,8 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
   resetInitiatorIp, 
   packetInfo, 
   errorType, 
-  animationKey,
-  onReplay
+  animationKey, // Digunakan untuk memicu reset animasi dari parent
+  onReplay // Fungsi yang dipanggil saat tombol replay di komponen ini diklik
 }) => {
   const [currentStep, setCurrentStep] = useState(0); 
   const [showStepLabel, setShowStepLabel] = useState(false);
@@ -162,19 +174,26 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
 
   useEffect(() => {
     let timeouts: NodeJS.Timeout[] = [];
+    
+    // Reset state internal saat animationKey berubah
     setCurrentStep(0);
     setShowStepLabel(false);
 
+    // Mulai langkah pertama setelah sedikit delay
     timeouts.push(setTimeout(() => {
-      setCurrentStep(s => s === 0 ? 1 : s); 
+      setCurrentStep(1); 
       timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
     }, 100)); 
 
+    // Jadwalkan langkah-langkah berikutnya
     for (let i = 1; i < animationSteps.length; i++) {
       timeouts.push(
         setTimeout(() => {
+          // Pastikan kita tidak update state jika komponen sudah di-unmount atau key berubah lagi
           setCurrentStep(prevStep => {
-            if (document.getElementById(`tcp-anim-${animationKey}`)) { 
+            // Hanya update jika animasi masih berjalan sesuai urutan yang diharapkan untuk key ini
+            // Ini mencegah update dari timeout lama jika animasi sudah di-replay/reset
+            if (document.getElementById(`tcp-anim-${animationKey}`)) { // Cek apakah komponen masih ada
                  return i + 1;
             }
             return prevStep;
@@ -184,6 +203,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
         }, (i * stepDuration) + 100) 
       );
     }
+    // Jadwalkan status akhir
     timeouts.push(
       setTimeout(() => {
         if (document.getElementById(`tcp-anim-${animationKey}`)) {
@@ -194,7 +214,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
     );
     
     return () => { timeouts.forEach(clearTimeout); };
-  }, [animationKey, animationSteps, stepDuration, labelDelay]);
+  }, [animationKey, animationSteps, stepDuration, labelDelay]); // animationKey ditambahkan
 
   const getIpRole = (ip: string | undefined, isInitiator: boolean | undefined, isClient: boolean) => {
     let role = isClient ? "Klien" : "Server";
@@ -229,6 +249,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
         </div>
       </div>
 
+      {/* Animated Packets Area */}
       <div className="w-full h-40 relative mb-4 border-y-2 border-dashed border-slate-300 dark:border-slate-700 flex flex-col justify-around overflow-hidden">
         {animationSteps.map((step, index) => {
           const isActive = currentStep === index + 1;
@@ -355,25 +376,25 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
     }
 
     if (targetPacket) {
-        console.log("[handleVisualizeError] Target packet for animation:", targetPacket); 
+        console.log("Target packet for animation:", targetPacket); 
         setAnimationData({
             type: errorItem.errorType,
             clientIp: targetPacket.source || "Unknown Client", 
             serverIp: targetPacket.destination || "Unknown Server", 
             packetNo: targetPacket.no,
             packetInfo: targetPacket.info,
-            resetInitiatorIp: targetPacket.source // Asumsi default, bisa disesuaikan
+            resetInitiatorIp: targetPacket.source 
         });
-        setAnimationComponentKey(prev => prev + 1); // Ini akan memicu re-render & reset animasi
+        setAnimationComponentKey(prev => prev + 1); // Trigger re-render of TcpResetAnimation
         setAnimationModalOpen(true);
     } else {
-        console.warn("[handleVisualizeError] Could not find target packet for animation. ErrorItem:", errorItem, "SamplePackets:", data?.samplePacketsForContext);
+        console.warn("Could not find target packet for animation. ErrorItem:", errorItem, "SamplePackets:", data?.samplePacketsForContext);
         alert("No specific packet context available to visualize this error flow accurately.");
     }
   };
 
-  const handleReplayAnimationInModal = () => {
-    setAnimationComponentKey(prev => prev + 1); // Ini akan memicu re-render & reset animasi
+  const handleReplayAnimation = () => {
+    setAnimationComponentKey(prev => prev + 1); // Ini akan memicu useEffect di TcpResetAnimation
   };
 
 
@@ -381,8 +402,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   if (error && !isLoading && (!data || data.status === 'Error')) { return(<Alert variant="destructive"className="max-w-2xl mx-auto my-8"><AlertCircle className="h-4 w-4"/><AlertTitle>Error Fetching Analysis</AlertTitle><AlertDescription><p>{error}</p><p>Analysis ID: {analysisId}</p><Button onClick={()=>fetchData(true)}variant="outline"className="mt-4"disabled={isLoading}><RefreshCw className="mr-2 h-4 w-4"/>{isLoading?"Retrying...":"Try Again"}</Button></AlertDescription></Alert>); }
   if (!data && !isLoading) { return(<Alert className="max-w-2xl mx-auto my-8"><Info className="h-4 w-4"/><AlertTitle>No AI Insights Available</AlertTitle><AlertDescription><p>AI insights could not be loaded for analysis ID: {analysisId}. The analysis might still be processing or an issue occurred.</p><Button onClick={()=>fetchData(true)}variant="outline"className="mt-4"disabled={isLoading}><RefreshCw className="mr-2 h-4 w-4"/>{isLoading?"Refreshing...":"Refresh"}</Button></AlertDescription></Alert>); }
   
-  // Sesuaikan errorReportToDisplay tergantung pada struktur yang dikembalikan AI
-  const errorReportToDisplay = data.detailedErrorAnalysis || data.errorAnalysisReport || [];
+  const errorReportToDisplay = data.detailedErrorAnalysis || data.errorAnalysisReport;
 
 
   return (
@@ -566,27 +586,25 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                               {data.voipAnalysisReport.detectedCalls.map((call, index) => (
                                 <AccordionItem value={`call-${index}`} key={call.callId || `call-${index}`}>
                                   <AccordionTrigger className="text-sm hover:no-underline">
-                                    Call from {call.callerIp || "Unknown"}{call.callerPort ? `:${call.callerPort}` : ""} to {call.calleeIp || "Unknown"}{call.calleePort ? `:${call.calleePort}` : ""} - <Badge variant={call.status.toLowerCase().includes('failed') ? 'destructive' : 'secondary'}>{call.status}</Badge>
+                                    Call from {call.caller || "Unknown"} to {call.callee || "Unknown"} - <Badge variant={call.status === 'Failed' ? 'destructive' : 'secondary'}>{call.status}</Badge>
                                   </AccordionTrigger>
                                   <AccordionContent className="text-xs space-y-1 pl-4">
                                     {call.callId && <p><strong>Call ID:</strong> {call.callId}</p>}
-                                    {call.protocol && <p><strong>Protocol:</strong> {call.protocol}</p>}
                                     {call.startTime && <p><strong>Start Time:</strong> {new Date(call.startTime).toLocaleString()}</p>}
-                                    {call.endTime && <p><strong>End Time:</strong> {new Date(call.endTime).toLocaleString()}</p>}
                                     {call.duration && <p><strong>Duration:</strong> {call.duration}</p>}
                                     {call.failureReason && <p><strong>Failure Reason:</strong> {call.failureReason}</p>}
-                                    {call.relatedPacketNumbers && call.relatedPacketNumbers.length > 0 && <p><strong>Related Packets (No.):</strong> {call.relatedPacketNumbers.join(', ')}</p>}
+                                    {call.relatedPackets && call.relatedPackets.length > 0 && <p><strong>Related Packets (No.):</strong> {call.relatedPackets.join(', ')}</p>}
                                   </AccordionContent>
                                 </AccordionItem>
                               ))}
                             </Accordion>
                           </div>
                         )}
-                        {data.voipAnalysisReport.potentialVoipIssues && data.voipAnalysisReport.potentialIssues.length > 0 && (
+                        {data.voipAnalysisReport.potentialIssues && data.voipAnalysisReport.potentialIssues.length > 0 && (
                            <div>
                             <h4 className="font-semibold mt-4 mb-2 text-base">Potential VoIP Issues:</h4>
                              <ul className="list-disc pl-5 space-y-2 text-sm">
-                              {data.voipAnalysisReport.potentialVoipIssues.map((issue, index) => (
+                              {data.voipAnalysisReport.potentialIssues.map((issue, index) => (
                                 <li key={index}>
                                   <strong>{issue.issueType}:</strong> {issue.description}
                                   {issue.evidence && <em className="block text-xs text-muted-foreground">Evidence: {issue.evidence}</em>}
@@ -596,31 +614,8 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                             </ul>
                            </div>
                         )}
-                         {data.voipAnalysisReport.cucmSpecificAnalysis && 
-                            (data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues && data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues.length > 0 ||
-                             data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors && data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors.length > 0 ||
-                             data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved && data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A"
-                            ) && (
-                            <div>
-                                <h4 className="font-semibold mt-4 mb-2 text-base">CUCM Specific Analysis:</h4>
-                                {data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues && data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues.length > 0 && (
-                                    <div className="mb-2"><strong>Registration Issues:</strong> <ul className="list-disc pl-5 text-xs">{data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues.map((item, i) => <li key={`reg-${i}`}>{item}</li>)}</ul></div>
-                                )}
-                                {data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors && data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors.length > 0 && (
-                                    <div className="mb-2"><strong>Call Processing Errors:</strong> <ul className="list-disc pl-5 text-xs">{data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors.map((item, i) => <li key={`proc-${i}`}>{item}</li>)}</ul></div>
-                                )}
-                                {data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved && data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A" &&(
-                                    <p><strong>Common CUCM Problems Observed:</strong> {data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved}</p>
-                                )}
-                            </div>
-                        )}
                          {(!data.voipAnalysisReport.detectedCalls || data.voipAnalysisReport.detectedCalls.length === 0) && 
-                          (!data.voipAnalysisReport.potentialVoipIssues || data.voipAnalysisReport.potentialVoipIssues.length > 0) && 
-                          (!data.voipAnalysisReport.cucmSpecificAnalysis || (
-                            (!data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues || data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues.length === 0) &&
-                            (!data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors || data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors.length === 0) &&
-                            (!data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved || data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved === "N/A")
-                          )) && (
+                          (!data.voipAnalysisReport.potentialIssues || data.voipAnalysisReport.potentialIssues.length > 0) && (
                             <p className="text-sm text-muted-foreground">No specific VoIP call details or issues were highlighted by the AI.</p>
                          )}
                       </CardContent>
@@ -667,8 +662,8 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   resetInitiatorIp={animationData.resetInitiatorIp}
                   packetInfo={animationData.packetInfo}
                   errorType={animationData.type}
-                  animationKey={animationComponentKey} 
-                  onReplay={handleReplayAnimation} 
+                  animationKey={animationComponentKey} // Teruskan key
+                  onReplay={handleReplayAnimation} // Teruskan fungsi replay
                 />
               )}
               <DialogFooter>
