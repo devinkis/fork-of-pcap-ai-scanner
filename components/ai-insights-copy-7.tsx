@@ -146,17 +146,10 @@ interface TcpResetAnimationProps {
   resetInitiatorIp?: string;
   packetInfo?: string;
   errorType?: string;
-  animationKey: number; 
+  animationKey: number; // Kunci untuk memaksa re-render dan reset animasi
 }
 
-const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ 
-  clientIp = "Klien Tidak Diketahui", 
-  serverIp = "Server Tidak Diketahui", 
-  resetInitiatorIp, 
-  packetInfo, 
-  errorType, 
-  animationKey 
-}) => {
+const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien Tidak Diketahui", serverIp = "Server Tidak Diketahui", resetInitiatorIp, packetInfo, errorType, animationKey }) => {
   const [currentStep, setCurrentStep] = useState(0); 
   const [showStepLabel, setShowStepLabel] = useState(false);
 
@@ -165,7 +158,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
     { name: "SYN-ACK", from: serverIp, to: clientIp, color: "green-500", description: `${serverIp || 'Server'} membalas dengan SYN-ACK ke ${clientIp || 'Klien'}` },
     { name: "ACK", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp || 'Klien'} mengirim ACK. Koneksi terbentuk.` },
     { name: "RST", from: resetInitiatorIp, to: (resetInitiatorIp === clientIp ? serverIp : clientIp), color: "red-600", isReset: true, description: `Paket RST dikirim dari ${resetInitiatorIp || 'salah satu pihak'}, koneksi direset.` },
-  ], [clientIp, serverIp, resetInitiatorIp]); // Pastikan IP ada di dependency array
+  ], [clientIp, serverIp, resetInitiatorIp]);
   
   const stepDuration = 3000; 
   const labelDelay = 500; 
@@ -173,7 +166,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
   useEffect(() => {
     let timeouts: NodeJS.Timeout[] = [];
     
-    // Selalu reset state internal saat animationKey berubah (dipicu oleh tombol replay atau pembukaan modal baru)
+    // Selalu reset state internal saat animationKey berubah (atau saat mount pertama kali)
     setCurrentStep(0);
     setShowStepLabel(false);
 
@@ -187,12 +180,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
     for (let i = 1; i < animationSteps.length; i++) {
       timeouts.push(
         setTimeout(() => {
-          // Hanya update jika belum di-unmount atau key belum berubah lagi
-          setCurrentStep(prevStep => {
-            // Jika prevStep sudah tidak relevan dengan loop ini (misal karena replay cepat), jangan update
-            if (prevStep !== i) return prevStep; 
-            return i + 1;
-          });
+          setCurrentStep(i + 1); 
           setShowStepLabel(false); 
           timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay)); 
         }, (i * stepDuration) + 100) 
@@ -209,7 +197,18 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
     return () => { timeouts.forEach(clearTimeout); };
   }, [animationKey, animationSteps, stepDuration, labelDelay]); // animationKey ditambahkan sebagai dependensi
 
-  const getIpRole = (ip: string | undefined, isInitiator: boolean | undefined, isClient: boolean) => {
+  const handleReplay = () => {
+    // Fungsi ini sekarang akan di-handle oleh parent dengan mengubah animationComponentKey
+    // Namun, kita tetap bisa memanggil setCurrentStep(0) di sini untuk efek visual langsung jika diperlukan
+    // atau biarkan parent yang mengontrol sepenuhnya melalui animationKey.
+    // Untuk kesederhanaan, tombol replay akan memicu perubahan key di parent.
+    // Jika tombol replay ada di dalam komponen ini, ia harus memanggil fungsi prop.
+    // Karena tombol replay ada di parent (AIInsights), kita tidak perlu handleReplay di sini.
+    // Tombol replay di parent akan mengubah animationComponentKey, yang akan diterima sebagai animationKey.
+  };
+
+
+  const getIpRole = (ip: string, isInitiator: boolean, isClient: boolean) => {
     let role = isClient ? "Klien" : "Server";
     if (isInitiator && errorType?.toLowerCase().includes("reset")) role += " (Pengirim RST)";
     return `${ip || 'Tidak Diketahui'} (${role})`;
@@ -252,7 +251,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
           
           return (
             <div
-              key={`${step.name}-${index}-${animationKey}`} 
+              key={`${step.name}-${index}-${animationKey}`} // Gunakan animationKey untuk memaksa re-render
               className={`absolute top-1/2 -translate-y-1/2 w-auto flex items-center transition-opacity duration-300 ease-in-out
                           ${isActive ? 'opacity-100 z-10' : 'opacity-0 -z-10'}
                           ${isActive && isFromClient ? 'animate-packet-move-right-v6' : ''}
@@ -347,7 +346,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
     packetInfo?: string;
     resetInitiatorIp?: string; 
   } | null>(null);
-  const [animationComponentKey, setAnimationComponentKey] = useState(0); 
+  const [animationComponentKey, setAnimationComponentKey] = useState(0); // Key untuk TcpResetAnimation
 
   const fetchData = useCallback(async (isRetry = false) => { if(!isRetry)setIsLoading(true);setError(null);console.log(`[AI_INSIGHTS] Fetching AI analysis data for ID: ${analysisId}`);try{const response=await fetch("/api/analyze-pcap",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({analysisId:analysisId}),});const result=await response.json();if(!response.ok)throw new Error(result.error||result.message||`HTTP error! status: ${response.status}`);if(result&&result.success&&result.analysis){const analysisData=result.analysis;setData(prevData=>({fileName:prevData?.fileName||analysisData.fileName||initialServerData?.fileName,fileSize:prevData?.fileSize||analysisData.fileSize||initialServerData?.fileSize,uploadDate:prevData?.uploadDate||analysisData.uploadDate||initialServerData?.uploadDate,...analysisData,status:"Completed",analystNotes:analysisData.analystNotes||prevData?.analystNotes||initialServerData?.analystNotes||"",samplePacketsForContext: analysisData.samplePacketsForContext || prevData?.samplePacketsForContext || initialServerData?.samplePacketsForContext || []}));setAnalystNotes(analysisData.analystNotes||data?.analystNotes||initialServerData?.analystNotes||"");}else{throw new Error(result.error||"Received unexpected data structure from AI analysis API.");}}catch(err:any){console.error("[AI_INSIGHTS] Error in fetchData:",err);setError(err.message||"An unknown error occurred while fetching AI analysis.");setData(prevData=>({...prevData,status:"Error"}as AiInsightsData));}finally{setIsLoading(false);}}, [analysisId, data?.analystNotes, initialServerData]);
   useEffect(() => { if(initialServerData&&!initialError){setData(initialServerData);setAnalystNotes(initialServerData.analystNotes||"");setIsLoading(false);}else if(initialError){setError(initialError);setIsLoading(false);}else if(!data&&analysisId&&isLoading){fetchData();}else if(data&&!isLoading){/* Data already loaded or no fetch needed initially */}}, [analysisId, initialServerData, initialError, data, isLoading, fetchData]);
@@ -369,14 +368,14 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
     }
 
     if (targetPacket) {
-        console.log("Target packet for animation:", targetPacket); 
+        console.log("Target packet for animation:", targetPacket); // Debugging
         setAnimationData({
             type: errorItem.errorType,
             clientIp: targetPacket.source || "Unknown Client", 
             serverIp: targetPacket.destination || "Unknown Server", 
             packetNo: targetPacket.no,
             packetInfo: targetPacket.info,
-            resetInitiatorIp: targetPacket.source 
+            resetInitiatorIp: targetPacket.source // Default, bisa disesuaikan
         });
         setAnimationComponentKey(prev => prev + 1); 
         setAnimationModalOpen(true);
@@ -651,7 +650,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   resetInitiatorIp={animationData.resetInitiatorIp}
                   packetInfo={animationData.packetInfo}
                   errorType={animationData.type}
-                  animationKey={animationComponentKey} 
+                  animationKey={animationComponentKey} // Teruskan key
                 />
               )}
               <DialogFooter>
