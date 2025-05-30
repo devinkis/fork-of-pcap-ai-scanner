@@ -427,7 +427,6 @@ export async function POST(request: NextRequest) {
           ],
           "findings": [ { "id": "...", "title": "...", "description": "...", "severity": "...", "confidence": 0, "recommendation": "...", "category": "...", "affectedHosts": [], "relatedPackets": [] } ],
           "iocs": [ { "type": "ip", "value": "...", "context": "...", "confidence": 0 } ],
-          "statistics": ${JSON.stringify(dataForAI.statistics)}, 
           "recommendations": [ { "title": "...", "description": "...", "priority": "..." } ],
           "timeline": [ { "time": "...", "event": "...", "severity": "..." } ]
         }
