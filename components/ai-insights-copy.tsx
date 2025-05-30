@@ -45,13 +45,12 @@ interface AlertInfo { id: string; timestamp: string; severity: 'Low' | 'Medium' 
 interface DetailedPacketInfo { id: string; timestamp: string; source: string; destination: string; protocol: string; length: number; summary: string; payload?: string; }
 interface IOC { type: "ip" | "domain" | "url" | "hash" | "port"; value: string; context: string; confidence: number; }
 
-// Struktur untuk laporan error dari AI (sesuai ai.txt dan permintaan analisis per instance)
 interface DetailedErrorInstance {
-  packetNumber?: number; // Menjadi opsional jika AI tidak selalu memberikannya
+  packetNumber?: number; 
   errorType: string;
   packetInfoFromParser?: string; 
-  detailedExplanation: string; 
-  probableCauseInThisContext: string; 
+  detailedExplanation?: string; // Bisa jadi tidak ada dari AI
+  probableCauseInThisContext?: string; // Bisa jadi tidak ada
   specificActionableRecommendations?: string[]; 
   relatedPacketSamples?: number[]; 
 }
@@ -64,7 +63,7 @@ interface VoipCallAnalysis {
   callerPort?: number; 
   calleeIp?: string; 
   calleePort?: number; 
-  status: 'Completed' | 'Failed' | 'Attempting' | 'No Answer' | 'Busy' | 'Ringing' | 'InProgress' | 'Unknown' | string; 
+  status?: 'Completed' | 'Failed' | 'Attempting' | 'No Answer' | 'Busy' | 'Ringing' | 'InProgress' | 'Unknown' | string; 
   failureReason?: string;
   relatedPacketNumbers?: number[];
   duration?: string | number; 
@@ -97,7 +96,6 @@ interface AiInsightsData {
   summary?: string;
   threatLevel?: string;
   trafficBehaviorScore?: { score: number; justification: string; };
-  // Menggunakan detailedErrorAnalysis karena itu yang ada di ai.txt
   detailedErrorAnalysis?: DetailedErrorInstance[]; 
   voipAnalysisReport?: VoipAnalysisReport; 
   findings?: Array<{ id?: string; title?: string; description?: string; severity?: string; confidence?: number; recommendation?: string; category?: string; affectedHosts?: string[]; relatedPacketSamples?: number[]; }>;
@@ -340,10 +338,11 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
 
   const handleVisualizeError = (errorItem: ErrorReportItem) => { 
     let targetPacket: SamplePacketForContext | undefined;
+    // Coba cari packetNumber dari errorItem.packetNumber (jika analisis per instance)
+    // atau dari errorItem.relatedPacketSamples (jika analisis agregat)
     let packetNumberToFind: number | undefined = errorItem.packetNumber;
-
-    if (!packetNumberToFind && errorItem.relatedPacketSamples && errorItem.relatedPacketSamples.length > 0) {
-        packetNumberToFind = errorItem.relatedPacketSamples[0];
+    if (!packetNumberToFind && (errorItem.relatedPacketSamples?.length ?? 0) > 0) {
+        packetNumberToFind = errorItem.relatedPacketSamples![0];
     }
 
     if (packetNumberToFind && data?.samplePacketsForContext) {
@@ -358,9 +357,11 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
             serverIp: targetPacket.destination || "IP Server?", 
             packetNo: targetPacket.no,
             packetInfo: targetPacket.info,
+            // Asumsi pengirim RST adalah source dari paket yang dilaporkan error.
+            // Ini mungkin perlu logika lebih canggih jika AI bisa menentukan pengirim RST.
             resetInitiatorIp: targetPacket.source 
         });
-        setAnimationComponentKey(prev => prev + 1); 
+        setAnimationComponentKey(prev => prev + 1); // Ini akan memicu re-render & reset animasi
         setAnimationModalOpen(true);
     } else {
         console.warn("[handleVisualizeError] Could not find target packet. ErrorItem:", errorItem, "SamplePackets:", data?.samplePacketsForContext);
@@ -369,6 +370,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   };
 
   const handleReplayAnimationInModal = () => {
+    // Fungsi ini dipanggil oleh tombol "Ulangi Animasi" di dalam TcpResetAnimation
     setAnimationComponentKey(prev => prev + 1); 
   };
 
@@ -459,6 +461,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                                 <AccordionTrigger className="hover:no-underline text-sm md:text-base">
                                   <div className="flex items-center justify-between w-full">
                                     <span className="font-semibold">{errorItem.errorType} {errorItem.packetNumber ? `(Packet #${errorItem.packetNumber})` : ''}</span>
+                                    {/* Tampilkan count hanya jika ini adalah mode agregat (errorItem.count ada DAN errorItem.packetNumber tidak ada) */}
                                     {errorItem.count && !errorItem.packetNumber && <Badge variant="destructive" className="text-xs">{errorItem.count} occurrences</Badge>}
                                   </div>
                                 </AccordionTrigger>
@@ -543,7 +546,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                 <TabsContent value="visuals"className="space-y-6">{(data.protocolDistribution?.length ?? 0)>0&&(<Card><CardHeader><CardTitle className="flex items-center text-lg"><PieChartIcon className="mr-2 text-purple-500"/>Protocol Distribution</CardTitle></CardHeader><CardContent style={{width:"100%",height:300}}><ResponsiveContainer><PieChart><Pie activeIndex={activePieIndex}activeShape={renderActiveShape}data={data.protocolDistribution}cx="50%"cy="50%"innerRadius={60}outerRadius={100}fill="#8884d8"dataKey="value"onMouseEnter={onPieEnter}>{(data.protocolDistribution || []).map((entry,index)=>(<Cell key={`cell-${index}`}fill={entry.fill||COLORS[index%COLORS.length]}/>))}</Pie><RechartsTooltip/><Legend layout="vertical"align="right"verticalAlign="middle"iconSize={10}wrapperStyle={{fontSize:"12px"}}/></PieChart></ResponsiveContainer></CardContent></Card>)} {(data.statistics?.topTalkers?.length ?? 0)>0&&data.statistics.topTalkers[0].ip!=="No identifiable IP traffic"&&(<Card><CardHeader><CardTitle className="flex items-center text-lg"><BarChart2 className="mr-2 text-green-500"/>Top Talkers (by Packets)</CardTitle></CardHeader><CardContent style={{width:"100%",height:300}}><ResponsiveContainer><BarChart data={data.statistics.topTalkers}layout="vertical"margin={{top:5,right:30,left:20,bottom:5}}><CartesianGrid strokeDasharray="3 3"/><XAxis type="number"/><YAxis dataKey="ip"type="category"width={150}interval={0}tick={{fontSize:10}}/><RechartsTooltip/><Legend wrapperStyle={{fontSize:"12px"}}/><Bar dataKey="packets"name="Total Packets"fill="#82ca9d"/></BarChart></ResponsiveContainer></CardContent></Card>)}</TabsContent>
                 {data.performanceMetrics&&(<TabsContent value="performance"><Card><CardHeader><CardTitle className="flex items-center text-lg"><Activity className="mr-2 text-cyan-500"/>Performance</CardTitle></CardHeader><CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm md:text-base"><div><strong>Total Packets (in file):</strong> {data.performanceMetrics.totalPackets?.toLocaleString()||data.statistics?.totalPacketsInFile?.toLocaleString()||"N/A"}</div><div><strong>Total Bytes (in file):</strong> {data.performanceMetrics.totalBytes?.toLocaleString()||data.statistics?.totalBytesInFile?.toLocaleString()||"N/A"}</div><div><strong>Capture Duration:</strong> {data.performanceMetrics.captureDuration||"N/A"}</div><div><strong>Avg Packet Rate:</strong> {data.performanceMetrics.averagePacketRate||"N/A"}</div></CardContent></Card></TabsContent>)}
                 
-                {data.voipAnalysisReport && ((data.voipAnalysisReport.detectedCalls?.length ?? 0) > 0 || (data.voipAnalysisReport.potentialVoipIssues?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis && (data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues?.length || data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors?.length || data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A"))) && (
+                {data.voipAnalysisReport && ((data.voipAnalysisReport.detectedCalls?.length ?? 0) > 0 || (data.voipAnalysisReport.potentialVoipIssues?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis && ((data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors?.length ?? 0) > 0 || data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A"))) && (
                   <TabsContent value="voip">
                     <Card>
                       <CardHeader>
@@ -562,7 +565,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                               {(data.voipAnalysisReport.detectedCalls || []).map((call, index) => (
                                 <AccordionItem value={`call-${index}`} key={call.callId || `call-${index}`}>
                                   <AccordionTrigger className="text-sm hover:no-underline">
-                                    Call from {call.callerIp || "Unknown"}{call.callerPort ? `:${call.callerPort}` : ""} to {call.calleeIp || "Unknown"}{call.calleePort ? `:${call.calleePort}` : ""} - <Badge variant={call.status.toLowerCase().includes('failed') ? 'destructive' : 'secondary'}>{call.status}</Badge>
+                                    Call from {call.callerIp || "Unknown"}{call.callerPort ? `:${call.callerPort}` : ""} to {call.calleeIp || "Unknown"}{call.calleePort ? `:${call.calleePort}` : ""} - <Badge variant={call.status?.toLowerCase().includes('failed') ? 'destructive' : 'secondary'}>{call.status || 'Unknown'}</Badge>
                                   </AccordionTrigger>
                                   <AccordionContent className="text-xs space-y-1 pl-4">
                                     {call.callId && <p><strong>Call ID:</strong> {call.callId}</p>}
