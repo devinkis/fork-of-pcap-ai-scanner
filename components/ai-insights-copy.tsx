@@ -47,13 +47,13 @@ interface IOC { type: "ip" | "domain" | "url" | "hash" | "port"; value: string; 
 
 // Struktur untuk laporan error dari AI (sesuai ai.txt dan permintaan analisis per instance)
 interface DetailedErrorInstance {
-  packetNumber: number;
+  packetNumber?: number; // Menjadi opsional jika AI tidak selalu memberikannya
   errorType: string;
-  packetInfoFromParser: string; 
+  packetInfoFromParser?: string; 
   detailedExplanation: string; 
   probableCauseInThisContext: string; 
-  specificActionableRecommendations?: string[]; // Bisa jadi array atau tidak ada
-  relatedPacketSamples?: number[]; // Opsional dari ai.txt
+  specificActionableRecommendations?: string[]; 
+  relatedPacketSamples?: number[]; 
 }
 
 interface SamplePacketForContext { no: number; timestamp: string; source: string; destination: string; sourcePort?: number; destPort?: number; protocol: string; length: number; info: string; isError?: boolean; errorType?: string; payloadHexSample?: string;}
@@ -97,7 +97,8 @@ interface AiInsightsData {
   summary?: string;
   threatLevel?: string;
   trafficBehaviorScore?: { score: number; justification: string; };
-  detailedErrorAnalysis?: DetailedErrorInstance[]; // Untuk analisis per instance
+  // Menggunakan detailedErrorAnalysis karena itu yang ada di ai.txt
+  detailedErrorAnalysis?: DetailedErrorInstance[]; 
   voipAnalysisReport?: VoipAnalysisReport; 
   findings?: Array<{ id?: string; title?: string; description?: string; severity?: string; confidence?: number; recommendation?: string; category?: string; affectedHosts?: string[]; relatedPacketSamples?: number[]; }>;
   iocs?: IOC[];
@@ -161,7 +162,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({
     setShowStepLabel(false);
 
     timeouts.push(setTimeout(() => {
-      if (document.getElementById(`tcp-anim-wrapper-${animationKey}`)) { // Cek apakah komponen masih mounted
+      if (document.getElementById(`tcp-anim-wrapper-${animationKey}`)) { 
         setCurrentStep(1); 
         timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
       }
@@ -353,11 +354,11 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
         console.log("[handleVisualizeError] Target packet for animation:", targetPacket); 
         setAnimationData({
             type: errorItem.errorType,
-            clientIp: targetPacket.source || "IP Klien?", // Pastikan ada fallback jika undefined
-            serverIp: targetPacket.destination || "IP Server?", // Pastikan ada fallback jika undefined
+            clientIp: targetPacket.source || "IP Klien?", 
+            serverIp: targetPacket.destination || "IP Server?", 
             packetNo: targetPacket.no,
             packetInfo: targetPacket.info,
-            resetInitiatorIp: targetPacket.source // Asumsi default, bisa disesuaikan
+            resetInitiatorIp: targetPacket.source 
         });
         setAnimationComponentKey(prev => prev + 1); 
         setAnimationModalOpen(true);
@@ -376,6 +377,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   if (error && !isLoading && (!data || data.status === 'Error')) { return(<Alert variant="destructive"className="max-w-2xl mx-auto my-8"><AlertCircle className="h-4 w-4"/><AlertTitle>Error Fetching Analysis</AlertTitle><AlertDescription><p>{error}</p><p>Analysis ID: {analysisId}</p><Button onClick={()=>fetchData(true)}variant="outline"className="mt-4"disabled={isLoading}><RefreshCw className="mr-2 h-4 w-4"/>{isLoading?"Retrying...":"Try Again"}</Button></AlertDescription></Alert>); }
   if (!data && !isLoading) { return(<Alert className="max-w-2xl mx-auto my-8"><Info className="h-4 w-4"/><AlertTitle>No AI Insights Available</AlertTitle><AlertDescription><p>AI insights could not be loaded for analysis ID: {analysisId}. The analysis might still be processing or an issue occurred.</p><Button onClick={()=>fetchData(true)}variant="outline"className="mt-4"disabled={isLoading}><RefreshCw className="mr-2 h-4 w-4"/>{isLoading?"Refreshing...":"Refresh"}</Button></AlertDescription></Alert>); }
   
+  // Pilih error report yang akan ditampilkan berdasarkan apakah backend sudah diupdate
   const errorReportToDisplay = data.detailedErrorAnalysis || data.errorAnalysisReport || [];
 
 
@@ -428,7 +430,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   <TabsTrigger value="timeline" className="flex items-center text-xs sm:text-sm"><Clock className="mr-1 sm:mr-2 h-4 w-4" />Timeline</TabsTrigger>
                   <TabsTrigger value="visuals" className="flex items-center text-xs sm:text-sm"><BarChart2 className="mr-1 sm:mr-2 h-4 w-4" />Visuals</TabsTrigger>
                   {data.performanceMetrics && <TabsTrigger value="performance" className="flex items-center text-xs sm:text-sm"><Activity className="mr-1 sm:mr-2 h-4 w-4" />Perf.</TabsTrigger>}
-                  {data.voipAnalysisReport && ((data.voipAnalysisReport.detectedCalls?.length ?? 0) > 0 || (data.voipAnalysisReport.potentialVoipIssues?.length ?? 0) > 0) && (
+                  {data.voipAnalysisReport && ((data.voipAnalysisReport.detectedCalls?.length ?? 0) > 0 || (data.voipAnalysisReport.potentialVoipIssues?.length ?? 0) > 0 || (data.voipAnalysisReport.cucmSpecificAnalysis && (data.voipAnalysisReport.cucmSpecificAnalysis.registrationIssues?.length || data.voipAnalysisReport.cucmSpecificAnalysis.callProcessingErrors?.length || data.voipAnalysisReport.cucmSpecificAnalysis.commonCUCMProblemsObserved !== "N/A"))) && (
                     <TabsTrigger value="voip" className="flex items-center text-xs sm:text-sm"><PhoneOff className="mr-1 sm:mr-2 h-4 w-4" />VoIP Analysis</TabsTrigger>
                   )}
                 </TabsList>
@@ -466,7 +468,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                                   {errorItem.detailedExplanation && <p><strong>Detailed Explanation:</strong> {errorItem.detailedExplanation}</p>}
                                   {errorItem.probableCauseInThisContext && <p><strong>Probable Cause:</strong> {errorItem.probableCauseInThisContext}</p>}
                                   
-                                  {errorItem.possibleCauses && errorItem.possibleCauses.length > 0 && (
+                                  {(errorItem.possibleCauses?.length ?? 0) > 0 && (
                                     <div>
                                       <h4 className="font-semibold mb-1">Possible General Causes:</h4>
                                       <ul className="list-disc pl-5 space-y-0.5 text-xs">
@@ -474,7 +476,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                                       </ul>
                                     </div>
                                   )}
-                                  {errorItem.troubleshootingSuggestions && errorItem.troubleshootingSuggestions.length > 0 && (
+                                  {(errorItem.troubleshootingSuggestions?.length ?? 0) > 0 && (
                                     <div>
                                       <h4 className="font-semibold mb-1">General Troubleshooting:</h4>
                                       <ul className="list-disc pl-5 space-y-0.5 text-xs">
@@ -482,7 +484,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                                       </ul>
                                     </div>
                                   )}
-                                   {errorItem.specificActionableRecommendations && errorItem.specificActionableRecommendations.length > 0 && (
+                                   {(errorItem.specificActionableRecommendations?.length ?? 0) > 0 && (
                                     <div>
                                       <h4 className="font-semibold mb-1">Specific Recommendations:</h4>
                                       <ul className="list-disc pl-5 space-y-0.5 text-xs">
