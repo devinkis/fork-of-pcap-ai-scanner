@@ -8,10 +8,9 @@ const PCAPNGParser = require('pcap-ng-parser');
 import { Readable } from 'stream';
 
 const MAX_SAMPLES_FOR_AI = 15; 
-const MAX_ERROR_INSTANCES_FOR_AI = 7; // Batasi jumlah instance error yang dikirim ke AI
 const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; 
 
-// --- Fungsi Helper Timestamp (tetap sama) ---
+// --- Fungsi Helper Timestamp ---
 function getTimestamp(packetHeader: any, isPcapNg: boolean = false, pcapNgPacket?: any, ifaceInfo?: any): string {
     if (isPcapNg && pcapNgPacket) {
         let timestampDate;
@@ -57,12 +56,12 @@ function getTimestamp(packetHeader: any, isPcapNg: boolean = false, pcapNgPacket
 
 // --- Parser untuk .pcap (menggunakan PcapParser) ---
 async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: string, analysisId: string): Promise<any> {
-  console.log(`[AI_ORIGINAL_PARSER_V2] Parsing .pcap for AI: ${fileName} (ID: ${analysisId})`);
+  console.log(`[AI_ORIGINAL_PARSER] Parsing .pcap for AI: ${fileName} (ID: ${analysisId})`);
   const functionStartTime = Date.now();
 
   const pcapResponse = await fetch(fileUrl);
   if (!pcapResponse.ok || !pcapResponse.body) {
-    throw new Error(`[AI_ORIGINAL_PARSER_V2] Failed to download .pcap file: ${pcapResponse.statusText}`);
+    throw new Error(`[AI_ORIGINAL_PARSER] Failed to download .pcap file: ${pcapResponse.statusText}`);
   }
   const arrayBuffer = await pcapResponse.arrayBuffer();
   const pcapBuffer = Buffer.from(arrayBuffer);
@@ -81,7 +80,7 @@ async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: strin
       if (!promiseResolved) {
         promiseResolved = true;
         const outcome = status === "resolved" ? "Resolve" : "Reject";
-        console.log(`[AI_ORIGINAL_PARSER_V2] Cleanup & ${outcome} for AI ${analysisId}. Packets: ${packetCounter}. Total time: ${((Date.now() - functionStartTime) / 1000).toFixed(2)}s`);
+        console.log(`[AI_ORIGINAL_PARSER] Cleanup & ${outcome} for AI ${analysisId}. Packets: ${packetCounter}. Total time: ${((Date.now() - functionStartTime) / 1000).toFixed(2)}s`);
         if (parser) parser.removeAllListeners();
         if (readablePcapStream) {
             readablePcapStream.unpipe(parser);
@@ -129,9 +128,11 @@ async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: strin
                                 if (flagsByte & 0x02) flags.push("SYN");
                                 if (flagsByte & 0x01) flags.push("FIN");
                                 if (flagsByte & 0x10) flags.push("ACK");
+                                
                                 const srcPort = packet.data.readUInt16BE(currentOffset);
                                 const dstPort = packet.data.readUInt16BE(currentOffset + 2);
                                 info = `${srcPort} → ${dstPort} [${flags.join(',')}] ${info.replace(`IPv4 ${sourceIp} -> ${destIp} TCP`, '')}`.trim();
+
                             } else { isError = true; errorType = "TruncatedTCP_AI"; }
                         }
                         else if (ipProtocolField === 17) { protocol = "UDP"; info += ` UDP`; }
@@ -148,7 +149,7 @@ async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: strin
       if (sourceIp !== "N/A") { if (!ipTraffic[sourceIp]) ipTraffic[sourceIp] = {sentPackets:0,receivedPackets:0,sentBytes:0,receivedBytes:0,totalPackets:0,totalBytes:0}; ipTraffic[sourceIp].sentPackets++; ipTraffic[sourceIp].sentBytes += packetLength; ipTraffic[sourceIp].totalPackets++; ipTraffic[sourceIp].totalBytes += packetLength;}
       if (destIp !== "N/A") { if (!ipTraffic[destIp]) ipTraffic[destIp] = {sentPackets:0,receivedPackets:0,sentBytes:0,receivedBytes:0,totalPackets:0,totalBytes:0}; ipTraffic[destIp].receivedPackets++; ipTraffic[destIp].receivedBytes += packetLength; ipTraffic[destIp].totalPackets++; ipTraffic[destIp].totalBytes += packetLength;}
 
-      if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI || (isError && samplePacketsForAI.filter(p=>p.isError).length < Math.floor(MAX_SAMPLES_FOR_AI / 2)) ) {
+      if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI || (isError && samplePacketsForAI.filter(p=>p.isError).length < Math.floor(MAX_SAMPLES_FOR_AI / 3)) ) {
         samplePacketsForAI.push({ no: packetCounter, timestamp, source: sourceIp, destination: destIp, protocol, length: packetLength, info, isError, errorType });
       }
       if (packetCounter >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) {
@@ -171,12 +172,12 @@ async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: strin
 
 // --- Parser untuk .pcapng (menggunakan PCAPNGParser) ---
 async function parsePcapFileForAIWithPcapNgParser(fileUrl: string, fileName: string, analysisId: string): Promise<any> {
-  console.log(`[AI_PCAPNG_PARSER_V2] Parsing .pcapng for AI: ${fileName} (ID: ${analysisId})`);
+  console.log(`[AI_PCAPNG_PARSER] Parsing .pcapng for AI: ${fileName} (ID: ${analysisId})`);
   const functionStartTime = Date.now();
 
   const pcapResponse = await fetch(fileUrl);
   if (!pcapResponse.ok || !pcapResponse.body) {
-    throw new Error(`[AI_PCAPNG_PARSER_V2] Failed to download .pcapng file: ${pcapResponse.statusText}`);
+    throw new Error(`[AI_PCAPNG_PARSER] Failed to download .pcapng file: ${pcapResponse.statusText}`);
   }
   const arrayBuffer = await pcapResponse.arrayBuffer();
   const pcapBuffer = Buffer.from(arrayBuffer);
@@ -195,11 +196,11 @@ async function parsePcapFileForAIWithPcapNgParser(fileUrl: string, fileName: str
   
   return new Promise((resolve, reject) => {
     const cleanupAndFinish = (status: "resolved" | "rejected", dataOrError: any) => {
-      if (!promiseResolved) { promiseResolved = true; const o=status==="resolved"?"Resolve":"Reject"; console.log(`[AI_PCAPNG_PARSER_V2] Cleanup & ${o} for ${analysisId}. Packets:${packetCounter}, DataEvents:${dataEventCounter}, Blocks:${blockCounter}. Time:${((Date.now()-functionStartTime)/1000).toFixed(2)}s`); if(parser)parser.removeAllListeners(); if(readablePcapStream){readablePcapStream.unpipe(parser); if(!readablePcapStream.destroyed)readablePcapStream.destroy(); readablePcapStream.removeAllListeners();} if(status==="resolved")resolve(dataOrError); else reject(dataOrError); }
+      if (!promiseResolved) { promiseResolved = true; const o=status==="resolved"?"Resolve":"Reject"; console.log(`[AI_PCAPNG_PARSER] Cleanup & ${o} for ${analysisId}. Packets:${packetCounter}, DataEvents:${dataEventCounter}, Blocks:${blockCounter}. Time:${((Date.now()-functionStartTime)/1000).toFixed(2)}s`); if(parser)parser.removeAllListeners(); if(readablePcapStream){readablePcapStream.unpipe(parser); if(!readablePcapStream.destroyed)readablePcapStream.destroy(); readablePcapStream.removeAllListeners();} if(status==="resolved")resolve(dataOrError); else reject(dataOrError); }
     };
     readablePcapStream.on('error', (err: Error) => { cleanupAndFinish("rejected", new Error(`ReadableStream error (AI PcapNG): ${err.message}`)); });
-    readablePcapStream.on('close', () => { if (!promiseResolved) { console.warn(`[AI_PCAPNG_PARSER_V2] ReadableStream closed prematurely for AI ${analysisId}.`); cleanupAndFinish("resolved", prepareAiData()); }});
-    readablePcapStream.on('end', () => { console.log(`[AI_PCAPNG_PARSER_V2] ReadableStream END for AI ${analysisId}.`);});
+    readablePcapStream.on('close', () => { if (!promiseResolved) { console.warn(`[AI_PCAPNG_PARSER] ReadableStream closed prematurely for AI ${analysisId}.`); cleanupAndFinish("resolved", prepareAiData()); }});
+    readablePcapStream.on('end', () => { console.log(`[AI_PCAPNG_PARSER] ReadableStream END for AI ${analysisId}.`);});
     
     readablePcapStream.pipe(parser);
 
@@ -251,9 +252,11 @@ async function parsePcapFileForAIWithPcapNgParser(fileUrl: string, fileName: str
                                 const flagsByte = packetDataBuffer[currentOffset + 13];
                                 if (flagsByte & 0x04) { flags.push("RST"); isError = true; errorType = "TCP Reset"; }
                                 if (flagsByte & 0x02) flags.push("SYN");
+                                // ... (add other flag checks if needed for info)
                                 const srcPort = packetDataBuffer.readUInt16BE(currentOffset);
                                 const dstPort = packetDataBuffer.readUInt16BE(currentOffset + 2);
                                 info = `${srcPort} → ${dstPort} [${flags.join(',')}] ${info.replace(`IPv4 ${sourceIp} -> ${destIp} TCP`, '')}`.trim();
+
                             } else { isError = true; errorType = "TruncatedTCP_AI_NG"; }
                         }
                         else if (ipProtocolField === 17) { protocol = "UDP"; info += ` UDP`; }
@@ -270,7 +273,7 @@ async function parsePcapFileForAIWithPcapNgParser(fileUrl: string, fileName: str
       if (sourceIp !== "N/A") { if (!ipTraffic[sourceIp]) ipTraffic[sourceIp] = {sentPackets:0,receivedPackets:0,sentBytes:0,receivedBytes:0,totalPackets:0,totalBytes:0}; ipTraffic[sourceIp].sentPackets++; ipTraffic[sourceIp].sentBytes += packetLength; ipTraffic[sourceIp].totalPackets++; ipTraffic[sourceIp].totalBytes += packetLength;}
       if (destIp !== "N/A") { if (!ipTraffic[destIp]) ipTraffic[destIp] = {sentPackets:0,receivedPackets:0,sentBytes:0,receivedBytes:0,totalPackets:0,totalBytes:0}; ipTraffic[destIp].receivedPackets++; ipTraffic[destIp].receivedBytes += packetLength; ipTraffic[destIp].totalPackets++; ipTraffic[destIp].totalBytes += packetLength;}
 
-      if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI || (isError && samplePacketsForAI.filter(p=>p.isError).length < Math.floor(MAX_SAMPLES_FOR_AI / 2)) ) {
+      if (samplePacketsForAI.length < MAX_SAMPLES_FOR_AI || (isError && samplePacketsForAI.filter(p=>p.isError).length < Math.floor(MAX_SAMPLES_FOR_AI / 3)) ) {
         samplePacketsForAI.push({ no: packetCounter, timestamp, source: sourceIp, destination: destIp, protocol, length: packetLength, info, isError, errorType });
       }
       if (packetCounter >= MAX_PACKETS_TO_PROCESS_FOR_STATS && samplePacketsForAI.length >= MAX_SAMPLES_FOR_AI) { cleanupAndFinish("resolved", prepareAiData()); }
@@ -327,7 +330,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     analysisIdFromBody = body.analysisId;
-    console.log(`[API_ANALYZE_PCAP_V4_PER_INSTANCE] Received request for analysisId: ${analysisIdFromBody}`);
+    console.log(`[API_ANALYZE_PCAP_V3_ERROR_PROMPT] Received request for analysisId: ${analysisIdFromBody}`);
 
     if (!groqProvider) {
       return NextResponse.json({ error: "AI Provider (Groq) is not configured." }, { status: 500 });
@@ -344,10 +347,10 @@ export async function POST(request: NextRequest) {
     let extractedPcapData;
     const fileName = pcapRecord.originalName || pcapRecord.fileName || "unknown_file";
     if (fileName.toLowerCase().endsWith(".pcapng")) {
-        console.log(`[API_ANALYZE_PCAP_V4_PER_INSTANCE] Using AI_PCAPNG_PARSER for ${fileName}`);
+        console.log(`[API_ANALYZE_PCAP_V3_ERROR_PROMPT] Using AI_PCAPNG_PARSER for ${fileName}`);
         extractedPcapData = await parsePcapFileForAIWithPcapNgParser(pcapRecord.blobUrl, fileName, analysisIdFromBody);
     } else {
-        console.log(`[API_ANALYZE_PCAP_V4_PER_INSTANCE] Using AI_ORIGINAL_PARSER for ${fileName}`);
+        console.log(`[API_ANALYZE_PCAP_V3_ERROR_PROMPT] Using AI_ORIGINAL_PARSER for ${fileName}`);
         extractedPcapData = await parsePcapForAIWithOriginalParser(pcapRecord.blobUrl, fileName, analysisIdFromBody);
     }
 
@@ -355,29 +358,27 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Failed to parse PCAP file data for AI." }, { status: 500 });
     }
 
-    // Kirim detail setiap paket error ke AI, bukan hanya summary
     const errorPacketsForAI = (extractedPcapData.samplePackets || [])
-        .filter((packet: any) => packet.isError && packet.errorType)
-        .map((packet: any) => ({ 
-            no: packet.no,
-            errorType: packet.errorType,
-            infoFromParser: packet.info, // Info singkat dari parser kita
-            source: packet.source,
-            destination: packet.destination,
-            protocol: packet.protocol,
-            timestamp: packet.timestamp
-        })).slice(0, MAX_ERROR_INSTANCES_FOR_AI); // Batasi jumlah instance error
-    
-    console.log(`[API_ANALYZE_PCAP_V4_PER_INSTANCE] Error packets for AI:`, JSON.stringify(errorPacketsForAI));
+    .filter((packet: any) => packet.isError && packet.errorType)
+    .map((packet: any) => ({ // Kirim detail yang relevan untuk AI
+        no: packet.no,
+        errorType: packet.errorType,
+        info: packet.info, // Info singkat dari parser
+        source: packet.source,
+        destination: packet.destination,
+        protocol: packet.protocol,
+        timestamp: packet.timestamp
+    })).slice(0, 100); // Batasi hingga 7 error instance untuk AI agar prompt tidak terlalu panjang
+
+console.log(`[API_ANALYZE_PCAP_V4_PER_ERROR] Error packets for AI:`, JSON.stringify(errorPacketsForAI));
 
 
     const dataForAI = {
       analysisId: analysisIdFromBody,
       fileName: pcapRecord.originalName,
       fileSize: pcapRecord.size,
-      statistics: extractedPcapData.statistics, // Kirim statistik umum
-      // samplePackets: extractedPcapData.samplePackets, // Kirim semua sampel jika perlu untuk konteks umum
-      errorPacketsForDetailedAnalysis: errorPacketsForAI, // Fokus pada error ini untuk analisis detail
+      ...extractedPcapData,
+      errorPackets: errorPacketsForAI, // Ganti errorSummary dengan ini 
     };
 
     const { text: rawAnalysisText } = await generateText({
@@ -387,37 +388,53 @@ export async function POST(request: NextRequest) {
         File: "${dataForAI.fileName}" (size: ${dataForAI.fileSize} bytes, ID: ${dataForAI.analysisId}).
         
         Extracted Data:
-        - General Statistics: ${JSON.stringify(dataForAI.statistics, null, 2)}
-        - Specific Error Packets for Detailed Analysis (up to ${MAX_ERROR_INSTANCES_FOR_AI} instances, 'no' is packet number): ${JSON.stringify(dataForAI.errorPacketsForDetailedAnalysis, null, 2)}
+        - Statistics: ${JSON.stringify(dataForAI.statistics, null, 2)}
+        - Sample Packets (info umum): ${JSON.stringify(dataForAI.samplePackets, null, 2)} 
+        - Specific Error Packets for Detailed Analysis (up to 7 instances): ${JSON.stringify(dataForAI.errorPackets, null, 2)}
 
         Based on THIS SPECIFIC data:
-        1.  Provide a concise overall summary of findings and security posture.
+        1.  Provide a concise summary of findings and overall security posture.
         2.  Determine a threat level (low, medium, high, critical).
         3.  Provide a traffic behavior score (0-100, 0=benign, 100=malicious) with justification.
         4.  **Detailed Error Analysis**: For EACH packet in 'Specific Error Packets for Detailed Analysis' (if any):
-            - packetNumber: (the 'no' field from the error packet)
-            - errorType: (e.g., "TCP Reset", "TruncatedHeader")
-            - packetInfoFromParser: (the 'infoFromParser' field)
-            - detailedExplanation: Provide an in-depth explanation of what this specific errorType means in the context of THIS packet (source, destination, protocol, and its parser-generated info).
-            - probableCauseInThisContext: Based on this specific packet's details, what is the most probable cause for this error instance?
-            - specificActionableRecommendations: [Array of 1-2 concise, actionable steps to investigate or fix THIS specific error instance.]
-        5.  List up to 5 general security findings (observations beyond the specific errors analyzed above). For each:
-            - id, title, description, severity, confidence, recommendation, category, affectedHosts (optional), relatedPackets (optional, use 'no' from general sample if relevant, not from errorPackets).
-        6.  Identify up to 3-5 Indicators of Compromise (IOCs) if any are strongly suggested by the general traffic or specific errors. For each:
-            - type, value, context, confidence.
-        7.  Suggest 2-3 general recommendations for security improvement based on overall patterns. For each:
-            - title, description, priority.
-        8.  Create a brief timeline of up to 3-5 most significant events (can be from error packets or general observations). For each:
-            - time, event, severity.
+           - packetNumber: (the 'no' field from the error packet)
+           - errorType: (e.g., "TCP Reset", "TruncatedHeader")
+           - packetInfoFromParser: (the 'info' field from the error packet, which is a brief summary from the parser)
+           - detailedExplanation: Provide an in-depth explanation of what this specific errorType means in the context of THIS packet (source, destination, protocol, and its parser-generated info).
+           - probableCauseInThisContext: Based on this specific packet's details, what is the most probable cause for this error instance?
+           - specificActionableRecommendations: [Array of 1-2 concise, actionable steps to investigate or fix THIS specific error instance.]
+        5.  List up to 5 specific, actionable findings (general security observations beyond packet errors). For each:
+            - id: a unique string for this finding (e.g., "finding-dns-tunnel-01")
+            - title: a short, descriptive title
+            - description: a detailed explanation of what was observed
+            - severity: (low, medium, high, critical)
+            - confidence: (0-100) your confidence in this finding
+            - recommendation: a specific action to take
+            - category: (malware, anomaly, exfiltration, vulnerability, reconnaissance, policy-violation, benign-but-noteworthy)
+            - affectedHosts: (optional) list of IPs primarily involved in this finding (use actual IPs if identified in parsing)
+            - relatedPackets: (optional) reference 'no' field from sample packets if applicable (e.g., [1, 5])
+        6.  Identify up to 3-5 Indicators of Compromise (IOCs) if any are strongly suggested by the data. For each IOC:
+            - type: (ip, domain, url, hash)
+            - value: the IOC value (use actual IPs or domains if identified)
+            - context: why this is an IOC based on the data
+            - confidence: (0-100)
+        7.  Suggest 2-3 general recommendations for security improvement based on patterns seen. For each:
+            - title
+            - description
+            - priority: (low, medium, high)
+        8.  Create a brief timeline of up to 3-5 most significant events if discernible from the provided data (use timestamps from sample packets or error summary). For each:
+            - time: (ISO string or relative time like "Packet Sample #1 Timestamp")
+            - event: description of the event
+            - severity: (info, warning, error)
 
         Format your ENTIRE response strictly as a single JSON object.
         {
           "summary": "...",
           "threatLevel": "...",
           "trafficBehaviorScore": { "score": 0, "justification": "..." },
-          "detailedErrorAnalysis": [ 
+          "detailedErrorAnalysis": [
             { 
-              "packetNumber": 0, 
+              "packetNumber": 0,
               "errorType": "ExampleErrorType", 
               "packetInfoFromParser": "...",
               "detailedExplanation": "...",
@@ -431,7 +448,7 @@ export async function POST(request: NextRequest) {
           "recommendations": [ { "title": "...", "description": "...", "priority": "..." } ],
           "timeline": [ { "time": "...", "event": "...", "severity": "..." } ]
         }
-        Ensure 'detailedErrorAnalysis' is an array of objects, one for each error packet analyzed. If 'Specific Error Packets for Detailed Analysis' was empty, 'detailedErrorAnalysis' should be an empty array.
+        Ensure the 'errorAnalysisReport' is populated based on 'errorSummary'. If no errors in summary, 'errorAnalysisReport' can be an empty array.
         The entire response MUST be ONLY the JSON object, starting with '{' and ending with '}'.
       `,
     });
@@ -449,19 +466,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       analysis: {
-        ...aiAnalysis, // Ini adalah JSON yang diparsing dari respons teks AI
-        // Sertakan kembali data yang mungkin berguna untuk frontend dan tidak selalu ada di respons AI
+        ...aiAnalysis,
         fileName: dataForAI.fileName,
         fileSize: dataForAI.fileSize,
         uploadDate: pcapRecord.createdAt.toISOString(),
-        samplePacketsForContext: extractedPcapData.samplePackets, // Kirim semua sampel paket asli untuk konteks
-        statistics: aiAnalysis.statistics || dataForAI.statistics, // Fallback jika AI tidak mengembalikan statistik
+        samplePacketsForContext: dataForAI.samplePackets, 
+        statistics: aiAnalysis.statistics || dataForAI.statistics,
       }
     });
 
   } catch (error) {
     const analysisIdForLogError = analysisIdFromBody || 'unknown';
-    console.error(`[API_ANALYZE_PCAP_V4_PER_INSTANCE] Error for analysisId: ${analysisIdForLogError}:`, error);
+    console.error(`[API_ANALYZE_PCAP_V3_ERROR_PROMPT] Error for analysisId: ${analysisIdForLogError}:`, error);
     const errorMessage = error instanceof Error ? error.message : "Unexpected AI analysis error.";
     if (error instanceof Error && (error.name === 'AI_LoadAPIKeyError' || error.message.includes("API key") || error.message.includes("authentication"))) {
         return NextResponse.json({ error: "AI Provider API key error.", details: error.message }, { status: 500 });
