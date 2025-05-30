@@ -1,15 +1,15 @@
 // app/api/analyze-pcap/route.ts
 import { type NextRequest, NextResponse } from "next/server";
-import { generateText } from "ai";
-import { createGroq } from "@ai-sdk/groq";
-import db from "@/lib/neon-db";
+import { generateText } from "ai"; //
+import { createGroq } from "@ai-sdk/groq"; //
+import db from "@/lib/neon-db"; //
 const PcapParser = require('pcap-parser');
 const PCAPNGParser = require('pcap-ng-parser');
-import { Readable } from 'stream';
+import { Readable } from 'stream'; //
 
-const MAX_SAMPLES_FOR_AI = 30; 
-const MAX_ERROR_INSTANCES_FOR_AI = 7; 
-const MAX_PACKETS_TO_PROCESS_FOR_STATS = 10000; 
+const MAX_SAMPLES_FOR_AI = 25; 
+const MAX_ERROR_INSTANCES_FOR_AI = 25; 
+const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000; 
 
 // --- Fungsi Helper Timestamp ---
 function getTimestamp(packetHeader: any, isPcapNg: boolean = false, pcapNgPacket?: any, ifaceInfo?: any): string {
@@ -57,12 +57,12 @@ function getTimestamp(packetHeader: any, isPcapNg: boolean = false, pcapNgPacket
 
 // --- Parser untuk .pcap (menggunakan PcapParser) ---
 async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: string, analysisId: string): Promise<any> {
-  console.log(`[AI_ORIGINAL_PARSER_V4_FINAL] Parsing .pcap for AI: ${fileName} (ID: ${analysisId})`);
+  console.log(`[AI_ORIGINAL_PARSER_V4_VOIP_DETAIL] Parsing .pcap for AI: ${fileName} (ID: ${analysisId})`);
   const functionStartTime = Date.now();
 
   const pcapResponse = await fetch(fileUrl);
   if (!pcapResponse.ok || !pcapResponse.body) {
-    throw new Error(`[AI_ORIGINAL_PARSER_V4_FINAL] Failed to download .pcap file: ${pcapResponse.statusText}`);
+    throw new Error(`[AI_ORIGINAL_PARSER_V4_VOIP_DETAIL] Failed to download .pcap file: ${pcapResponse.statusText}`);
   }
   const arrayBuffer = await pcapResponse.arrayBuffer();
   const pcapBuffer = Buffer.from(arrayBuffer);
@@ -81,7 +81,7 @@ async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: strin
       if (!promiseResolved) {
         promiseResolved = true;
         const outcome = status === "resolved" ? "Resolve" : "Reject";
-        console.log(`[AI_ORIGINAL_PARSER_V4_FINAL] Cleanup & ${outcome} for AI ${analysisId}. Packets: ${packetCounter}. Total time: ${((Date.now() - functionStartTime) / 1000).toFixed(2)}s`);
+        console.log(`[AI_ORIGINAL_PARSER_V4_VOIP_DETAIL] Cleanup & ${outcome} for AI ${analysisId}. Packets: ${packetCounter}. Total time: ${((Date.now() - functionStartTime) / 1000).toFixed(2)}s`);
         if (parser) parser.removeAllListeners();
         if (readablePcapStream) {
             readablePcapStream.unpipe(parser);
@@ -137,8 +137,8 @@ async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: strin
                                 if (flagsByte & 0x10) flags.push("ACK");
                                 info = `${sourcePort} → ${destPort} [${flags.join(',')}] TCP`;
                                 
-                                if (sourcePort === 5060 || destPort === 5060 || sourcePort === 5061 || destPort === 5061) {protocol = "SIP/TCP"; payloadHexSample = packet.data.slice(currentOffset + tcpHeaderLength).toString('hex').substring(0, 128);} // Perpanjang sampel payload
-                                else if (sourcePort === 2000 || destPort === 2000) {protocol = "SCCP/TCP"; payloadHexSample = packet.data.slice(currentOffset + tcpHeaderLength).toString('hex').substring(0, 128);}
+                                if (sourcePort === 5060 || destPort === 5060 || sourcePort === 5061 || destPort === 5061) {protocol = "SIP/TCP"; payloadHexSample = packet.data.slice(currentOffset + tcpHeaderLength).toString('hex').substring(0, 64);}
+                                else if (sourcePort === 2000 || destPort === 2000) {protocol = "SCCP/TCP"; payloadHexSample = packet.data.slice(currentOffset + tcpHeaderLength).toString('hex').substring(0, 64);}
 
                             } else { isError = true; errorType = "TruncatedTCP_AI"; info += ` TCP (Truncated)`;}
                         }
@@ -148,9 +148,9 @@ async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: strin
                                 sourcePort = packet.data.readUInt16BE(currentOffset);
                                 destPort = packet.data.readUInt16BE(currentOffset + 2);
                                 info = `${sourcePort} → ${destPort} UDP`;
-                                if (sourcePort === 5060 || destPort === 5060) {protocol = "SIP/UDP"; payloadHexSample = packet.data.slice(currentOffset + 8).toString('hex').substring(0, 128);}
-                                else if ((sourcePort >= 16384 && sourcePort <= 32767 && sourcePort % 2 === 0) || (destPort >= 16384 && destPort <= 32767 && destPort % 2 === 0) ) {protocol = "RTP/UDP"; payloadHexSample = packet.data.slice(currentOffset + 8 + 12).toString('hex').substring(0, 48);} // RTP header is 12 bytes, sample 24 bytes after
-                                else if ((sourcePort >= 16384 && sourcePort <= 32767 && sourcePort % 2 !== 0) || (destPort >= 16384 && destPort <= 32767 && destPort % 2 !== 0) ) {protocol = "RTCP/UDP"; payloadHexSample = packet.data.slice(currentOffset + 8).toString('hex').substring(0, 64);} 
+                                if (sourcePort === 5060 || destPort === 5060) {protocol = "SIP/UDP"; payloadHexSample = packet.data.slice(currentOffset + 8).toString('hex').substring(0, 64);}
+                                else if ((sourcePort >= 16384 && sourcePort <= 32767 && sourcePort % 2 === 0) || (destPort >= 16384 && destPort <= 32767 && destPort % 2 === 0) ) {protocol = "RTP/UDP"; payloadHexSample = packet.data.slice(currentOffset + 8 + 12).toString('hex').substring(0, 24);} // RTP header is 12 bytes, sample after
+                                else if ((sourcePort >= 16384 && sourcePort <= 32767 && sourcePort % 2 !== 0) || (destPort >= 16384 && destPort <= 32767 && destPort % 2 !== 0) ) {protocol = "RTCP/UDP"; payloadHexSample = packet.data.slice(currentOffset + 8).toString('hex').substring(0, 16);} 
                             } else { isError = true; errorType = "TruncatedUDP_AI"; info += ` UDP (Truncated)`;}
                         }
                         else { protocol = `IPProto ${ipProtocolField}`; }
@@ -183,7 +183,7 @@ async function parsePcapForAIWithOriginalParser(fileUrl: string, fileName: strin
     parser.on('end', () => { if (!promiseResolved) cleanupAndFinish("resolved", prepareAiData()); });
     parser.on('error', (err: Error) => { if (!promiseResolved) cleanupAndFinish("rejected", new Error(`PcapParser stream error for AI: ${err.message}`)); });
     readablePcapStream.on('error', (err: Error) => { if (!promiseResolved) cleanupAndFinish("rejected", new Error(`ReadableStream error for PcapParser AI: ${err.message}`)); });
-    readablePcapStream.on('close', () => { if (!promiseResolved) { console.warn(`[AI_ORIGINAL_PARSER_V4_VOIP_DETAIL] ReadableStream closed prematurely for AI ${analysisId}.`); cleanupAndFinish("resolved", prepareAiData()); }});
+    readablePcapStream.on('close', () => { if (!promiseResolved) { console.warn(`[AI_ORIGINAL_PARSER_V3_VOIP] ReadableStream closed prematurely for AI ${analysisId}.`); cleanupAndFinish("resolved", prepareAiData()); }});
   });
 }
 
@@ -275,8 +275,8 @@ async function parsePcapFileForAIWithPcapNgParser(fileUrl: string, fileName: str
                                 if (flagsByte & 0x04) { flags.push("RST"); isError = true; errorType = "TCP Reset"; }
                                 if (flagsByte & 0x02) flags.push("SYN");
                                 info = `${sourcePort} → ${destPort} [${flags.join(',')}] TCP`;
-                                if (sourcePort === 5060 || destPort === 5060 || sourcePort === 5061 || destPort === 5061) {protocol = "SIP/TCP"; payloadHexSample = packetDataBuffer.slice(currentOffset + tcpHeaderLength).toString('hex').substring(0, 128);}
-                                else if (sourcePort === 2000 || destPort === 2000) {protocol = "SCCP/TCP"; payloadHexSample = packetDataBuffer.slice(currentOffset + tcpHeaderLength).toString('hex').substring(0, 128);}
+                                if (sourcePort === 5060 || destPort === 5060 || sourcePort === 5061 || destPort === 5061) {protocol = "SIP/TCP"; payloadHexSample = packetDataBuffer.slice(currentOffset + tcpHeaderLength).toString('hex').substring(0, 64);}
+                                if (sourcePort === 2000 || destPort === 2000) {protocol = "SCCP/TCP"; payloadHexSample = packetDataBuffer.slice(currentOffset + tcpHeaderLength).toString('hex').substring(0, 64);}
                             } else { isError = true; errorType = "TruncatedTCP_AI_NG"; info += ` TCP (Truncated)`;}
                         }
                         else if (ipProtocolField === 17) { 
@@ -285,9 +285,9 @@ async function parsePcapFileForAIWithPcapNgParser(fileUrl: string, fileName: str
                                 sourcePort = packetDataBuffer.readUInt16BE(currentOffset);
                                 destPort = packetDataBuffer.readUInt16BE(currentOffset + 2);
                                 info = `${sourcePort} → ${destPort} UDP`;
-                                if (sourcePort === 5060 || destPort === 5060) {protocol = "SIP/UDP"; payloadHexSample = packetDataBuffer.slice(currentOffset + 8).toString('hex').substring(0, 128);}
-                                else if ((sourcePort >= 16384 && sourcePort <= 32767 && sourcePort % 2 === 0) || (destPort >= 16384 && destPort <= 32767 && destPort % 2 === 0) ) {protocol = "RTP/UDP"; payloadHexSample = packetDataBuffer.slice(currentOffset + 8 + 12).toString('hex').substring(0, 48);}
-                                else if ((sourcePort >= 16384 && sourcePort <= 32767 && sourcePort % 2 !== 0) || (destPort >= 16384 && destPort <= 32767 && destPort % 2 !== 0) ) {protocol = "RTCP/UDP"; payloadHexSample = packetDataBuffer.slice(currentOffset + 8).toString('hex').substring(0, 64);}
+                                if (sourcePort === 5060 || destPort === 5060) {protocol = "SIP/UDP"; payloadHexSample = packetDataBuffer.slice(currentOffset + 8).toString('hex').substring(0, 64);}
+                                else if ((sourcePort >= 16384 && sourcePort <= 32767 && sourcePort % 2 === 0) || (destPort >= 16384 && destPort <= 32767 && destPort % 2 === 0) ) {protocol = "RTP/UDP"; payloadHexSample = packetDataBuffer.slice(currentOffset + 8 + 12).toString('hex').substring(0, 24);}
+                                else if ((sourcePort >= 16384 && sourcePort <= 32767 && sourcePort % 2 !== 0) || (destPort >= 16384 && destPort <= 32767 && destPort % 2 !== 0) ) {protocol = "RTCP/UDP"; payloadHexSample = packetDataBuffer.slice(currentOffset + 8).toString('hex').substring(0, 16);}
                             } else { isError = true; errorType = "TruncatedUDP_AI_NG"; info += ` UDP (Truncated)`;}
                         }
                         else { protocol = `IPProto ${ipProtocolField}`; }
@@ -321,7 +321,7 @@ async function parsePcapFileForAIWithPcapNgParser(fileUrl: string, fileName: str
 
 
 const groqApiKey = process.env.GROQ_API_KEY;
-const modelNameFromEnv = process.env.GROQ_MODEL_NAME || "llama3-70b-8192"; // Menggunakan model yang lebih besar
+const modelNameFromEnv = process.env.GROQ_MODEL_NAME || "llama3-8b-8192";
 let groqProvider: ReturnType<typeof createGroq> | null = null;
 
 if (groqApiKey && groqApiKey.trim() !== "") {
@@ -360,7 +360,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     analysisIdFromBody = body.analysisId;
-    console.log(`[API_ANALYZE_PCAP_V7_VOIP_FINAL] Received request for analysisId: ${analysisIdFromBody}`);
+    console.log(`[API_ANALYZE_PCAP_V6_VOIP_DETAIL] Received request for analysisId: ${analysisIdFromBody}`);
 
     if (!groqProvider) {
       return NextResponse.json({ error: "AI Provider (Groq) is not configured." }, { status: 500 });
@@ -377,10 +377,10 @@ export async function POST(request: NextRequest) {
     let extractedPcapData;
     const fileName = pcapRecord.originalName || pcapRecord.fileName || "unknown_file";
     if (fileName.toLowerCase().endsWith(".pcapng")) {
-        console.log(`[API_ANALYZE_PCAP_V7_VOIP_FINAL] Using AI_PCAPNG_PARSER for ${fileName}`);
+        console.log(`[API_ANALYZE_PCAP_V6_VOIP_DETAIL] Using AI_PCAPNG_PARSER for ${fileName}`);
         extractedPcapData = await parsePcapFileForAIWithPcapNgParser(pcapRecord.blobUrl, fileName, analysisIdFromBody);
     } else {
-        console.log(`[API_ANALYZE_PCAP_V7_VOIP_FINAL] Using AI_ORIGINAL_PARSER for ${fileName}`);
+        console.log(`[API_ANALYZE_PCAP_V6_VOIP_DETAIL] Using AI_ORIGINAL_PARSER for ${fileName}`);
         extractedPcapData = await parsePcapForAIWithOriginalParser(pcapRecord.blobUrl, fileName, analysisIdFromBody);
     }
 
@@ -403,7 +403,7 @@ export async function POST(request: NextRequest) {
             payloadHexSample: packet.payloadHexSample 
         })).slice(0, MAX_ERROR_INSTANCES_FOR_AI); 
     
-    console.log(`[API_ANALYZE_PCAP_V7_VOIP_FINAL] Error packets for AI (${errorPacketsForAI.length} instances):`, JSON.stringify(errorPacketsForAI.map(p => ({no: p.no, type: p.errorType}))));
+    console.log(`[API_ANALYZE_PCAP_V6_VOIP_DETAIL] Error packets for AI:`, JSON.stringify(errorPacketsForAI));
 
     const dataForAI = {
       analysisId: analysisIdFromBody,
@@ -422,40 +422,40 @@ export async function POST(request: NextRequest) {
         
         Extracted Data:
         - General Statistics: ${JSON.stringify(dataForAI.statistics, null, 2)}
-        - General Sample Packets (up to ${MAX_SAMPLES_FOR_AI}, 'no' is packet num. Some may include a 'payloadHexSample' for VoIP packets): ${JSON.stringify(dataForAI.samplePackets, null, 2)}
+        - General Sample Packets (up to ${MAX_SAMPLES_FOR_AI}, 'no' is packet num. Some may include a 'payloadHexSample'): ${JSON.stringify(dataForAI.samplePackets, null, 2)}
         - Specific Error Packets for Detailed Analysis (up to ${MAX_ERROR_INSTANCES_FOR_AI} instances. Some may include a 'payloadHexSample'): ${JSON.stringify(dataForAI.errorPacketsForDetailedAnalysis, null, 2)}
 
         Based on THIS SPECIFIC data:
         1.  Provide a concise overall summary of findings and security posture.
         2.  Determine a threat level (low, medium, high, critical).
         3.  Provide a traffic behavior score (0-100, 0=benign, 100=malicious) with justification.
-        4.  **Detailed Error Analysis**: For EACH packet in 'Specific Error Packets for Detailed Analysis' (if any, analyze ALL provided instances):
+        4.  **Detailed Error Analysis**: For EACH packet in 'Specific Error Packets for Detailed Analysis' (if any, analyze all provided instances):
             - packetNumber: (the 'no' field from the error packet)
             - errorType: (e.g., "TCP Reset", "TruncatedHeader")
-            - packetInfoFromParser: (the 'infoFromParser' field, which is a brief summary from the parser)
-            - detailedExplanation: Provide an in-depth explanation of what this specific errorType means in the context of THIS packet (source IP/Port, destination IP/Port, protocol, and its parser-generated info). Consider the 'payloadHexSample' if available for context.
+            - packetInfoFromParser: (the 'infoFromParser' field)
+            - detailedExplanation: Provide an in-depth explanation of what this specific errorType means in the context of THIS packet (source IP/Port, destination IP/Port, protocol, and its parser-generated info).
             - probableCauseInThisContext: Based on this specific packet's details and its 'payloadHexSample' (if available), what is the most probable cause for this error instance?
             - specificActionableRecommendations: [Array of 1-2 concise, actionable steps to investigate or fix THIS specific error instance.]
-        5.  **VoIP Traffic Analysis (If any VoIP protocols like SIP, RTP, RTCP, SCCP, H.323 are present in General Sample Packets, Specific Error Packets or Statistics, or indicated by port numbers like 5060, 2000, or RTP range 16384-32767):**
-            - voipSummary: Brief summary of VoIP activity. Note if CUCM (Cisco Unified Communications Manager) context is suspected (e.g., SCCP traffic, common CUCM ports, or SIP packets with Cisco user-agents identified from 'payloadHexSample' if present). Describe the overall health of VoIP communication.
-            - detectedCalls: [Array of objects, each representing a call flow identified. Infer caller/callee from source/destination IPs and ports of signaling (SIP/SCCP) or media (RTP) packets. For Call-ID, look for 'Call-ID' header in SIP 'payloadHexSample'. For status, infer from SIP response codes (e.g., 200 OK, 404 Not Found, 486 Busy Here, 487 Request Terminated) or SCCP messages in 'payloadHexSample', or if RTP stops unexpectedly. Determine if the call was successful, failed, or its status is unknown.
+        5.  **VoIP Traffic Analysis (If any VoIP protocols like SIP, RTP, RTCP, SCCP, H.323 are present in General Sample Packets or Statistics, or indicated by port numbers like 5060, 2000, or RTP range 16384-32767):**
+            - voipSummary: Brief summary of VoIP activity. Note if CUCM (Cisco Unified Communications Manager) context is suspected (e.g., SCCP traffic, common CUCM ports, or SIP packets with Cisco user-agents in 'payloadHexSample').
+            - detectedCalls: [Array of objects, each representing a call flow identified from the sample packets or statistics. Infer caller/callee from source/destination IPs and ports of signaling (SIP/SCCP) or media (RTP) packets. For Call-ID, look for 'Call-ID' header in SIP 'payloadHexSample'. For status, infer from SIP response codes (e.g., 200 OK, 404 Not Found, 486 Busy Here, 487 Request Terminated) or SCCP messages in 'payloadHexSample', or if RTP stops unexpectedly.
                 {callId (if available), callerIp, callerPort, calleeIp, calleePort, protocol (SIP/SCCP/etc.), startTime (timestamp of first packet in flow), endTime (timestamp of last packet or BYE/hangup), duration (if calculable), 
                 status ('Completed', 'Failed - No Answer', 'Failed - Busy', 'Failed - Server Error (e.g. SIP 5xx)', 'Failed - Client Error (e.g. SIP 4xx)', 'Failed - Network Issue', 'Ringing', 'InProgress', 'Unknown'), 
                 failureReason (if applicable, e.g. "SIP/2.0 404 Not Found from payloadHexSample", "No RTP stream after INVITE"), 
                 relatedPacketNumbers (array of 'no' from samplePackets, list key signaling and media packets for this call if possible)}
               ]
             - potentialVoipIssues: [Array of objects, each for a potential issue: 
-                {issueType ('OneWayAudio', 'NoAudio', 'HighJitterIndication', 'PacketLossIndication', 'RegistrationFailure', 'SignalingError', 'CUCMCommunicationProblem', 'CallDropAbruptly', 'CodecMismatchSuspected', 'SIPRequestTimeout', 'SIPServerError', 'SIPClientError', 'SCCPPhoneUnregistered', 'VoIPQualityDegradation'), 
+                {issueType ('OneWayAudio', 'NoAudio', 'HighJitterIndication', 'PacketLossIndication', 'RegistrationFailure', 'SignalingError', 'CUCMCommunicationProblem', 'CallDropAbruptly', 'CodecMismatchSuspected'), 
                 description, 
-                evidence (e.g., "Only one-way RTP stream detected between A and B after SIP 200 OK", "SIP REGISTER failed with 401 Unauthorized for IP X", "RTCP RR indicates high loss for SSRC yyyy involving IP Z", "SCCP StationRegisterReject message seen for phone A", "Call between X and Y terminated without proper SIP BYE or SCCP hangup message after 30s."), 
+                evidence (e.g., "Only one-way RTP stream detected between A and B after SIP 200 OK", "SIP REGISTER failed with 401 Unauthorized", "RTCP RR indicates high loss for SSRC xxxx", "SCCP StationRegisterReject message seen", "Call terminated without proper SIP BYE or SCCP hangup message."), 
                 recommendation, severity ('Low', 'Medium', 'High')}
               ]
             - cucmSpecificAnalysis (Only if CUCM context is strongly suspected, or SCCP protocol is identified): { 
-                registrationIssues: ["Describe any phone/endpoint registration problems with CUCM, citing specific SCCP messages (e.g. from 'payloadHexSample') or SIP REGISTER failures if seen. Identify involved IPs/MACs if possible."], 
-                callProcessingErrors: ["Describe any call setup/teardown errors that seem related to CUCM call processing logic. Identify where the problem likely lies (e.g., endpoint-to-CUCM, CUCM-to-gateway, CUCM internal problem). Provide evidence from packet samples."], 
-                commonCUCMProblemsObserved: "Note any patterns indicative of common CUCM issues like Media Termination Point (MTP) resource problems, gateway misconfiguration, SCCP keepalive failures, or specific CUCM error codes if identifiable from payloads. Explain the implication."
+                registrationIssues: ["Describe any phone/endpoint registration problems with CUCM, citing specific SCCP messages (e.g. from 'payloadHexSample') or SIP REGISTER failures if seen."], 
+                callProcessingErrors: ["Describe any call setup/teardown errors that seem related to CUCM call processing logic. Identify where the problem likely lies (e.g., endpoint to CUCM, CUCM to gateway, CUCM internal)."], 
+                commonCUCMProblemsObserved: "Note any patterns indicative of common CUCM issues like Media Termination Point (MTP) resource problems, gateway misconfiguration, SCCP keepalive failures, etc."
               }
-            - If no VoIP traffic or no significant VoIP issues are detected from samples, this entire 'voipAnalysisReport' section in JSON can be an empty object or its sub-arrays can be empty, with a note in 'voipSummary' like "No significant VoIP traffic or issues detected for deep analysis".
+            - If no VoIP traffic is detected or analyzable from samples, this entire 'voipAnalysisReport' section in JSON should be an empty object or contain a note "No significant VoIP traffic detected for deep analysis in voipSummary".
         6.  List up to 5 general security findings. For each:
             - id, title, description, severity, confidence, recommendation, category, affectedHosts (optional), relatedPackets (optional).
         7.  Identify up to 3-5 Indicators of Compromise (IOCs). For each:
@@ -524,7 +524,7 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     const analysisIdForLogError = analysisIdFromBody || 'unknown';
-    console.error(`[API_ANALYZE_PCAP_V7_VOIP_FINAL] Error for analysisId: ${analysisIdForLogError}:`, error);
+    console.error(`[API_ANALYZE_PCAP_V6_VOIP_DETAIL] Error for analysisId: ${analysisIdForLogError}:`, error);
     const errorMessage = error instanceof Error ? error.message : "Unexpected AI analysis error.";
     if (error instanceof Error && (error.name === 'AI_LoadAPIKeyError' || error.message.includes("API key") || error.message.includes("authentication"))) {
         return NextResponse.json({ error: "AI Provider API key error.", details: error.message }, { status: 500 });
