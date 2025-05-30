@@ -150,8 +150,8 @@ interface TcpResetAnimationProps {
 }
 
 const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ 
-  clientIp = "Klien Tidak Diketahui", 
-  serverIp = "Server Tidak Diketahui", 
+  clientIp, 
+  serverIp, 
   resetInitiatorIp, 
   packetInfo, 
   errorType, 
