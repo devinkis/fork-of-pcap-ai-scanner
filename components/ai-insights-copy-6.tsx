@@ -146,7 +146,7 @@ interface TcpResetAnimationProps {
   resetInitiatorIp?: string;
   packetInfo?: string;
   errorType?: string;
-  animationKey: number; // Kunci untuk memaksa re-render dan reset animasi
+  animationKey: number; // Ditambahkan untuk force re-render
 }
 
 const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien Tidak Diketahui", serverIp = "Server Tidak Diketahui", resetInitiatorIp, packetInfo, errorType, animationKey }) => {
@@ -154,9 +154,9 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien
   const [showStepLabel, setShowStepLabel] = useState(false);
 
   const animationSteps = React.useMemo(() => [ 
-    { name: "SYN", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp || 'Klien'} mengirim SYN ke ${serverIp || 'Server'}` },
-    { name: "SYN-ACK", from: serverIp, to: clientIp, color: "green-500", description: `${serverIp || 'Server'} membalas dengan SYN-ACK ke ${clientIp || 'Klien'}` },
-    { name: "ACK", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp || 'Klien'} mengirim ACK. Koneksi terbentuk.` },
+    { name: "SYN", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim SYN ke ${serverIp}` },
+    { name: "SYN-ACK", from: serverIp, to: clientIp, color: "green-500", description: `${serverIp} merespons dengan SYN-ACK ke ${clientIp}` },
+    { name: "ACK", from: clientIp, to: serverIp, color: "blue-500", description: `${clientIp} mengirim ACK. Koneksi terbentuk.` },
     { name: "RST", from: resetInitiatorIp, to: (resetInitiatorIp === clientIp ? serverIp : clientIp), color: "red-600", isReset: true, description: `Paket RST dikirim dari ${resetInitiatorIp || 'salah satu pihak'}, koneksi direset.` },
   ], [clientIp, serverIp, resetInitiatorIp]);
   
@@ -166,13 +166,14 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien
   useEffect(() => {
     let timeouts: NodeJS.Timeout[] = [];
     
-    // Selalu reset state internal saat animationKey berubah (atau saat mount pertama kali)
+    // Reset state animasi saat animationKey berubah (dipicu oleh tombol replay)
+    // atau saat props IP utama berubah
     setCurrentStep(0);
     setShowStepLabel(false);
 
     // Mulai langkah pertama setelah sedikit delay
     timeouts.push(setTimeout(() => {
-      setCurrentStep(1); 
+      setCurrentStep(s => s === 0 ? 1 : s); // Hanya update jika masih di step 0
       timeouts.push(setTimeout(() => setShowStepLabel(true), labelDelay));
     }, 100)); 
 
@@ -195,23 +196,12 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien
     );
     
     return () => { timeouts.forEach(clearTimeout); };
-  }, [animationKey, animationSteps, stepDuration, labelDelay]); // animationKey ditambahkan sebagai dependensi
-
-  const handleReplay = () => {
-    // Fungsi ini sekarang akan di-handle oleh parent dengan mengubah animationComponentKey
-    // Namun, kita tetap bisa memanggil setCurrentStep(0) di sini untuk efek visual langsung jika diperlukan
-    // atau biarkan parent yang mengontrol sepenuhnya melalui animationKey.
-    // Untuk kesederhanaan, tombol replay akan memicu perubahan key di parent.
-    // Jika tombol replay ada di dalam komponen ini, ia harus memanggil fungsi prop.
-    // Karena tombol replay ada di parent (AIInsights), kita tidak perlu handleReplay di sini.
-    // Tombol replay di parent akan mengubah animationComponentKey, yang akan diterima sebagai animationKey.
-  };
-
+  }, [animationKey, animationSteps, stepDuration, labelDelay]); // Tambahkan animationKey ke dependency
 
   const getIpRole = (ip: string, isInitiator: boolean, isClient: boolean) => {
     let role = isClient ? "Klien" : "Server";
     if (isInitiator && errorType?.toLowerCase().includes("reset")) role += " (Pengirim RST)";
-    return `${ip || 'Tidak Diketahui'} (${role})`;
+    return `${ip} (${role})`;
   }
 
   const currentStepDetails = currentStep > 0 && currentStep <= animationSteps.length ? animationSteps[currentStep - 1] : null;
@@ -251,7 +241,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien
           
           return (
             <div
-              key={`${step.name}-${index}-${animationKey}`} // Gunakan animationKey untuk memaksa re-render
+              key={`${step.name}-${index}-${animationKey}`} // Gunakan animationKey
               className={`absolute top-1/2 -translate-y-1/2 w-auto flex items-center transition-opacity duration-300 ease-in-out
                           ${isActive ? 'opacity-100 z-10' : 'opacity-0 -z-10'}
                           ${isActive && isFromClient ? 'animate-packet-move-right-v6' : ''}
@@ -292,7 +282,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien
         )}
       </div>
 
-      <Button variant="outline" size="sm" onClick={() => setAnimationKey(prev => prev + 1)} className="mt-auto text-sm border-slate-400 hover:bg-slate-200 dark:border-slate-600 dark:hover:bg-slate-700/80 shadow">
+      <Button variant="outline" size="sm" onClick={handleReplay} className="mt-auto text-sm border-slate-400 hover:bg-slate-200 dark:border-slate-600 dark:hover:bg-slate-700/80 shadow">
         <RefreshCw className="mr-2 h-4 w-4" /> Ulangi Animasi
       </Button>
       
@@ -303,7 +293,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien
           85% { opacity: 1; transform: translateY(-50%) scale(1); }
           100% { left: calc(90% - 75px); opacity: 0; transform: translateY(-50%) scale(0.9); } 
         }
-        .animate-packet-move-right-v6 { 
+        .animate-packet-move-right-v6 { /* Nama class diperbarui */
           animation: packet-move-right-detailed-v6 ${stepDuration / 1000}s ease-in-out forwards;
         }
         @keyframes packet-move-left-detailed-v6 { 
@@ -312,7 +302,7 @@ const TcpResetAnimation: React.FC<TcpResetAnimationProps> = ({ clientIp = "Klien
           85% { opacity: 1; transform: translateY(-50%) scale(1); }
           100% { right: calc(90% - 75px); opacity: 0; transform: translateY(-50%) scale(0.9); } 
         }
-        .animate-packet-move-left-v6 { 
+        .animate-packet-move-left-v6 { /* Nama class diperbarui */
           animation: packet-move-left-detailed-v6 ${stepDuration / 1000}s ease-in-out forwards;
         }
         @keyframes fade-in-custom-v3 {
@@ -359,28 +349,28 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
   const handleVisualizeError = (errorItem: ErrorReportItem) => { 
     let targetPacket: SamplePacketForContext | undefined;
 
+    // Coba cari paket berdasarkan packetNumber jika ada (untuk analisis per instance)
     if (errorItem.packetNumber && data?.samplePacketsForContext) {
         targetPacket = data.samplePacketsForContext.find(p => p.no === errorItem.packetNumber);
     } 
+    // Fallback ke relatedPacketSamples jika packetNumber tidak ada (untuk analisis agregat)
     else if (errorItem.relatedPacketSamples && errorItem.relatedPacketSamples.length > 0 && data?.samplePacketsForContext) {
         const firstPacketNo = errorItem.relatedPacketSamples[0];
         targetPacket = data.samplePacketsForContext.find(p => p.no === firstPacketNo);
     }
 
     if (targetPacket) {
-        console.log("Target packet for animation:", targetPacket); // Debugging
         setAnimationData({
             type: errorItem.errorType,
-            clientIp: targetPacket.source || "Unknown Client", 
-            serverIp: targetPacket.destination || "Unknown Server", 
+            clientIp: targetPacket.source || "Unknown Client", // Fallback jika source undefined
+            serverIp: targetPacket.destination || "Unknown Server", // Fallback jika destination undefined
             packetNo: targetPacket.no,
             packetInfo: targetPacket.info,
-            resetInitiatorIp: targetPacket.source // Default, bisa disesuaikan
+            resetInitiatorIp: targetPacket.source // Asumsi default, bisa disesuaikan
         });
-        setAnimationComponentKey(prev => prev + 1); 
+        setAnimationComponentKey(prev => prev + 1); // Ubah key untuk mereset state internal TcpResetAnimation
         setAnimationModalOpen(true);
     } else {
-        console.warn("Could not find target packet for animation. ErrorItem:", errorItem, "SamplePackets:", data?.samplePacketsForContext);
         alert("No specific packet context available to visualize this error flow accurately.");
     }
   };
@@ -650,7 +640,7 @@ export function AIInsights({ analysisId, initialData: initialServerData, error: 
                   resetInitiatorIp={animationData.resetInitiatorIp}
                   packetInfo={animationData.packetInfo}
                   errorType={animationData.type}
-                  animationKey={animationComponentKey} // Teruskan key
+                  animationKey={animationComponentKey} // Teruskan key ke komponen animasi
                 />
               )}
               <DialogFooter>
