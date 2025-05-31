@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { verifyPassword, generateToken } from "@/lib/auth"
 import { createPool } from "@vercel/postgres"
 
+export const runtime = 'nodejs';
 // Get the connection string from environment variables
 const getConnectionString = () => {
   // Prioritize non-pooling connection for direct client connections

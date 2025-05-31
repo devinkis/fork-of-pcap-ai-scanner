@@ -8,6 +8,7 @@ import db from "@/lib/neon-db"
 // --- FIX END ---
 import { getCurrentUser } from "@/lib/auth"
 
+export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     // Get current user

@@ -5,6 +5,7 @@ const PcapParser = require('pcap-parser');
 const PCAPNGParser = require('pcap-ng-parser');
 import { Readable } from 'stream';
 
+export const runtime = 'nodejs';
 // --- Fungsi Helper Timestamp untuk PCAPNGParser ---
 function pcapNgTimestampToDate(timestampHigh: number, timestampLow: number, tsresol: number = 6): Date {
   const divisorForMs = BigInt(10 ** (Math.max(0, tsresol - 3))); // Ensure divisor is at least 1 (for nanoseconds if tsresol=0 for example)

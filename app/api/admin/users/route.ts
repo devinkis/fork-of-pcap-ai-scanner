@@ -5,6 +5,7 @@ import db from "@/lib/neon-db" // Mengimpor database Neon
 import { type NextRequest, NextResponse } from "next/server"
 import { requireAdmin, hashPassword } from "@/lib/auth"
 
+export const runtime = 'nodejs';
 export async function GET() {
   try {
     await requireAdmin()

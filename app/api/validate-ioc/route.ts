@@ -7,6 +7,7 @@ import * as OTX from "@/lib/otx";
 import * as AbuseIPDB from "@/lib/abuseipdb";
 import * as Talos from "@/lib/talosintelligence";
 
+export const runtime = 'nodejs';
 interface ValidationRequest {
   type: "ip" | "domain" | "url" | "hash";
   value: string;

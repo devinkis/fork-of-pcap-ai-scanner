@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import db from "@/lib/neon-db"; // Assuming this still works
 import { getCurrentUser } from "@/lib/auth";
 
+export const runtime = 'nodejs';
 export async function GET() {
   try {
     const user = await getCurrentUser();

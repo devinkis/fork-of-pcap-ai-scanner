@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import db from "@/lib/neon-db"
 import { requireAdmin, hashPassword } from "@/lib/auth"
 
+export const runtime = 'nodejs';
 export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireAdmin()

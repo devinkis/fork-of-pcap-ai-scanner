@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs"
 import db from "@/lib/neon-db"
 import { sql } from "@vercel/postgres"
 
+export const runtime = 'nodejs';
 export async function POST() {
   try {
     // Only allow this in development or with proper authorization

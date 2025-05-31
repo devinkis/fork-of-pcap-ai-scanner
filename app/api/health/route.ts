@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@vercel/postgres"
 
+export const runtime = 'nodejs';
 // Get the connection string from environment variables
 const getConnectionString = () => {
   // For direct client connections in API routes, prioritize non-pooling

@@ -4,6 +4,7 @@ import { list } from "@vercel/blob"
 import db from "@/lib/neon-db"
 import { getCurrentUser } from "@/lib/auth"
 
+export const runtime = 'nodejs';
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     // Get current user

@@ -3,6 +3,7 @@ import { hash } from "bcryptjs"
 import db from "@/lib/neon-db"
 import type { NextRequest } from "next/server"
 
+export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   try {
     // Get the seed key from the request

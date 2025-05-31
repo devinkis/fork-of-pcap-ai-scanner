@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import db from "@/lib/neon-db";
 import { del as deleteBlob } from "@vercel/blob";
 
+export const runtime = 'nodejs';
 export async function DELETE(request: NextRequest) {
   try {
     const user = await getCurrentUser();

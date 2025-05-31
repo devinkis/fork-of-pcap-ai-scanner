@@ -7,6 +7,7 @@ const PcapParser = require('pcap-parser');
 const PCAPNGParser = require('pcap-ng-parser');
 import { Readable } from 'stream';
 
+export const runtime = 'nodejs';
 const MAX_SAMPLES_FOR_AI = 25; // Anda bisa sesuaikan jumlah sampel
 const MAX_ERROR_INSTANCES_FOR_AI = 15; // Batasi jumlah instance error spesifik untuk AI
 const MAX_PACKETS_TO_PROCESS_FOR_STATS = 5000;
