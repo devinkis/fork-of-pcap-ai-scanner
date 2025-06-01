@@ -1,6 +1,6 @@
 // scripts/wrap-api-handlers.js
-const fs = require('fs');
-const path = require('path');
+// const fs = require('fs');
+// const path = require('path');
 const recast = require('recast');
 const babelParser = require('@babel/parser'); // Ganti nama agar tidak bentrok dengan variabel 'parser'
 const traverse = require('@babel/traverse').default;
