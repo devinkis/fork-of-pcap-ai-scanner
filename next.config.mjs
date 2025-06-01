@@ -1,40 +1,26 @@
-// next.config.mjs
+// next.config.js
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // ...
-  webpack: (config, { isServer, nextRuntime }) => {
-    if (isServer && nextRuntime === 'nodejs') {
-      config.externals = [
-        ...(config.externals || []),
-        (context, request, callback) => {
-          // Daftar modul yang akan dieksternalisasi
-          const externalsList = [
-            'undici',
-            '@elastic/elasticsearch',
-            '@elastic/transport',
-            // Anda bisa menambahkan modul 'node:...' di sini jika masih bermasalah,
-            // meskipun seharusnya tidak perlu jika targetnya Node.js.
-            // Contoh: /^node:/
-          ];
+  webpack: (config, { isServer }) => {
+    // Untuk mencegah error UnhandledSchemeError saat ada import "node:*"
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'node:console': 'console',
+      'node:crypto': 'crypto',
+      'node:diagnostics_channel': false, // disable jika tidak perlu
+    };
 
-          if (externalsList.some(mod => request.startsWith(mod) || (mod instanceof RegExp && mod.test(request)))) {
-            return callback(null, `commonjs ${request}`);
-          }
-          callback();
-        },
-      ];
-    }
+    // Opsional: fallback jika diperlukan untuk modul-modul Node
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      console: false,
+      crypto: false,
+      diagnostics_channel: false,
+    };
 
-    if (!isServer || nextRuntime === 'edge') {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        "console": false, "crypto": false, "dns": false, "http": false,
-        "https": false, "net": false, "tls": false, "fs": false,
-        "path": false, "stream": false, "zlib": false,
-        "diagnostics_channel": false, "os": false, "tty": false, "util": false,
-      };
-    }
     return config;
   },
 };
-export default nextConfig;
+
+module.exports = nextConfig;
